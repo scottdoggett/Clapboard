@@ -1,0 +1,35 @@
+<!--
+  Clapboard Logo (Placeholder)
+
+  TODO: Replace this placeholder with the actual Clapboard logo.
+
+  Design suggestions:
+  - Film clapperboard / slate icon
+  - Modern, minimal style
+  - Works in monochrome and color
+  - Recognizable at small sizes
+
+  Usage:
+  - Marketing materials
+  - Popup header
+  - About page
+  - Documentation
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <!-- Placeholder: Simple clapperboard shape -->
+  <rect x="10" y="30" width="80" height="60" rx="4" fill="#1a1a1a" stroke="#f04d42" stroke-width="2"/>
+
+  <!-- Clapboard stripes (top part) -->
+  <path d="M10 30 L90 30 L90 15 L10 15 Z" fill="#f04d42"/>
+  <path d="M10 15 L25 30 M25 15 L40 30 M40 15 L55 30 M55 15 L70 30 M70 15 L85 30" stroke="#1a1a1a" stroke-width="3"/>
+
+  <!-- Hinge -->
+  <circle cx="15" cy="30" r="3" fill="#333"/>
+  <circle cx="85" cy="30" r="3" fill="#333"/>
+
+  <!-- Text placeholder lines -->
+  <rect x="20" y="45" width="60" height="4" rx="1" fill="#333"/>
+  <rect x="20" y="55" width="45" height="4" rx="1" fill="#333"/>
+  <rect x="20" y="65" width="50" height="4" rx="1" fill="#333"/>
+  <rect x="20" y="75" width="35" height="4" rx="1" fill="#333"/>
+</svg>

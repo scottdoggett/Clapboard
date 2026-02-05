@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clapboard</title>
+    <!--
+      Clapboard Popup HTML Shell
+
+      This is the HTML entry point for the browser action popup.
+      The React app is mounted into the #root element.
+
+      Note: Popup dimensions are set via CSS in the body/root elements.
+      Chrome extensions have a max popup width of 800px and height of 600px.
+    -->
+    <style>
+      /* Inline critical styles to prevent FOUC */
+      body {
+        margin: 0;
+        padding: 0;
+        width: 320px;
+        min-height: 200px;
+        background-color: #1a1a1a;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+      }
+      #root {
+        width: 100%;
+        min-height: 200px;
+      }
+    </style>
+    <!-- Compiled CSS will be injected here during build -->
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Compiled JS will be injected here during build -->
+    <script type="module" src="index.js"></script>
+  </body>
+</html>

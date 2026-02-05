@@ -1,0 +1,62 @@
+{
+  "manifest_version": 3,
+  "name": "Clapboard",
+  "version": "0.1.0",
+  "description": "Enrich your streaming experience with ratings, awards, and AI-powered review insights.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.netflix.com/*",
+    "https://*.disneyplus.com/*",
+    "https://*.crave.ca/*",
+    "https://*.primevideo.com/*",
+    "https://*.amazon.com/gp/video/*"
+  ],
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.netflix.com/*",
+        "https://*.disneyplus.com/*",
+        "https://*.crave.ca/*",
+        "https://*.primevideo.com/*",
+        "https://*.amazon.com/gp/video/*"
+      ],
+      "js": ["content/index.js"],
+      "css": ["content/styles/overlay.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    },
+    "default_title": "Clapboard"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/*"],
+      "matches": [
+        "https://*.netflix.com/*",
+        "https://*.disneyplus.com/*",
+        "https://*.crave.ca/*",
+        "https://*.primevideo.com/*",
+        "https://*.amazon.com/*"
+      ]
+    }
+  ]
+}

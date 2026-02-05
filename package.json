@@ -1,0 +1,35 @@
+{
+  "name": "clapboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome Extension that enriches streaming platforms with ratings, awards, and AI-powered review insights.",
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build && node scripts/build.ts",
+    "lint": "tsc --noEmit && eslint ."
+  },
+  "dependencies": {
+    "convex": "*",
+    "next": "*",
+    "react": "*",
+    "react-dom": "*"
+  },
+  "devDependencies": {
+    "@types/chrome": "*",
+    "@types/node": "*",
+    "@types/react": "*",
+    "@types/react-dom": "*",
+    "autoprefixer": "*",
+    "eslint": "*",
+    "eslint-config-next": "*",
+    "postcss": "*",
+    "tailwindcss": "*",
+    "typescript": "*"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

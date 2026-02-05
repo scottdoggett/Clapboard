@@ -1,0 +1,194 @@
+/**
+ * Clapboard Overlay Styles
+ *
+ * Tailwind CSS base + custom styles for the injected overlay UI.
+ * These styles are compiled and injected into the shadow DOM
+ * to ensure isolation from host page styles.
+ */
+
+/* Import Tailwind base layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   Shadow DOM Reset
+   ========================================================================== */
+
+/**
+ * Reset styles for shadow DOM to ensure consistent rendering
+ * across different streaming sites.
+ */
+:host {
+  all: initial;
+  display: block;
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: white;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ==========================================================================
+   Base Component Styles
+   ========================================================================== */
+
+/**
+ * Overlay container positioning
+ * Fixed to bottom-right corner with proper z-index
+ */
+.cb-overlay-container {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 999999;
+}
+
+/* ==========================================================================
+   Card Styles
+   ========================================================================== */
+
+.cb-card {
+  background-color: #1a1a1a;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.cb-card-header {
+  padding: 1rem;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.cb-card-body {
+  padding: 1rem;
+}
+
+.cb-card-footer {
+  padding: 0.5rem 1rem;
+  border-top: 1px solid #3a3a3a;
+}
+
+/* ==========================================================================
+   Rating Badge Styles
+   ========================================================================== */
+
+.cb-rating-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+.cb-rating-badge {
+  background-color: #2a2a2a;
+  border-radius: 8px;
+  padding: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ==========================================================================
+   Score Bar Styles
+   ========================================================================== */
+
+.cb-score-bar {
+  height: 6px;
+  background-color: #3a3a3a;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.cb-score-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.cb-score-bar-fill--green {
+  background-color: #4ade80;
+}
+
+.cb-score-bar-fill--yellow {
+  background-color: #facc15;
+}
+
+.cb-score-bar-fill--red {
+  background-color: #f87171;
+}
+
+/* ==========================================================================
+   Animations
+   ========================================================================== */
+
+@keyframes cb-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes cb-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cb-animate-fade-in {
+  animation: cb-fade-in 0.2s ease-out;
+}
+
+.cb-animate-slide-up {
+  animation: cb-slide-up 0.3s ease-out;
+}
+
+/* ==========================================================================
+   Utility Overrides
+   ========================================================================== */
+
+/**
+ * Ensure buttons are properly styled in shadow DOM
+ */
+button {
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+
+button:focus {
+  outline: 2px solid #f04d42;
+  outline-offset: 2px;
+}
+
+/**
+ * Scrollbar styles for expandable sections
+ */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #2a2a2a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4a4a4a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
