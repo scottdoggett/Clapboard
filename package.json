@@ -25,6 +25,7 @@
     "@types/react": "*",
     "@types/react-dom": "*",
     "autoprefixer": "*",
+    "canvas": "^3.2.1",
     "esbuild": "*",
     "eslint": "*",
     "eslint-config-next": "*",
