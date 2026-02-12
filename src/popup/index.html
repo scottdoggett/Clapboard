@@ -14,18 +14,16 @@
       Chrome extensions have a max popup width of 800px and height of 600px.
     -->
     <style>
-      /* Inline critical styles to prevent FOUC */
+      * { margin: 0; padding: 0; box-sizing: border-box; }
       body {
         margin: 0;
         padding: 0;
-        width: 320px;
-        min-height: 200px;
-        background-color: #1a1a1a;
-        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f0f23 100%);
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
       }
       #root {
-        width: 100%;
-        min-height: 200px;
+        width: 320px;
+        min-height: 280px;
       }
     </style>
     <!-- Compiled CSS will be injected here during build -->

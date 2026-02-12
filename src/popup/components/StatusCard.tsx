@@ -16,42 +16,36 @@ interface StatusCardProps {
   onToggle: () => void;
 }
 
-/**
- * Status indicator configuration
- */
 const STATUS_CONFIG: Record<
   ConnectionStatus,
-  {
-    label: string;
-    color: string;
-    bgColor: string;
-  }
+  { label: string; color: string; bgColor: string; glowColor: string }
 > = {
   connected: {
     label: "Connected",
-    color: "cb-text-green-400",
-    bgColor: "cb-bg-green-400",
+    color: "#4ade80",
+    bgColor: "#4ade80",
+    glowColor: "rgba(74, 222, 128, 0.4)",
   },
   connecting: {
     label: "Connecting...",
-    color: "cb-text-yellow-400",
-    bgColor: "cb-bg-yellow-400",
+    color: "#facc15",
+    bgColor: "#facc15",
+    glowColor: "rgba(250, 204, 21, 0.4)",
   },
   disconnected: {
     label: "Disconnected",
-    color: "cb-text-gray-400",
-    bgColor: "cb-bg-gray-400",
+    color: "#9ca3af",
+    bgColor: "#9ca3af",
+    glowColor: "rgba(156, 163, 175, 0.4)",
   },
   error: {
     label: "Error",
-    color: "cb-text-red-400",
-    bgColor: "cb-bg-red-400",
+    color: "#f87171",
+    bgColor: "#f87171",
+    glowColor: "rgba(248, 113, 113, 0.4)",
   },
 };
 
-/**
- * Status card component
- */
 const StatusCard: React.FC<StatusCardProps> = ({
   status,
   currentSite,
@@ -62,51 +56,120 @@ const StatusCard: React.FC<StatusCardProps> = ({
   const isSupportedSite = checkIfSupported(currentSite);
 
   return (
-    <div className="cb-bg-surface-light cb-rounded-lg cb-p-3">
+    <div
+      style={{
+        background: "rgba(255,255,255,0.05)",
+        borderRadius: 12,
+        padding: 14,
+        border: "1px solid rgba(255,255,255,0.08)",
+      }}
+    >
       {/* Status Row */}
-      <div className="cb-flex cb-items-center cb-justify-between cb-mb-3">
-        <div className="cb-flex cb-items-center cb-gap-2">
-          {/* Status indicator dot */}
-          <span
-            className={`cb-w-2 cb-h-2 cb-rounded-full ${statusConfig.bgColor} ${
-              status === "connecting" ? "cb-animate-pulse" : ""
-            }`}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 14,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Status indicator dot with glow */}
+          <div
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              backgroundColor: statusConfig.bgColor,
+              boxShadow: `0 0 8px ${statusConfig.glowColor}`,
+              animation: status === "connecting" ? "pulse 1.5s infinite" : "none",
+            }}
           />
-          <span className={`cb-text-sm ${statusConfig.color}`}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: statusConfig.color }}>
             {statusConfig.label}
           </span>
         </div>
 
-        {/* Enable/Disable Toggle */}
+        {/* Modern Toggle Switch */}
         <button
           onClick={onToggle}
-          className={`cb-relative cb-w-10 cb-h-5 cb-rounded-full cb-transition-colors ${
-            isEnabled ? "cb-bg-primary-600" : "cb-bg-surface-lighter"
-          }`}
+          style={{
+            position: "relative",
+            width: 44,
+            height: 24,
+            borderRadius: 12,
+            border: "none",
+            cursor: "pointer",
+            background: isEnabled
+              ? "linear-gradient(135deg, #f04d42 0%, #e63946 100%)"
+              : "rgba(255,255,255,0.15)",
+            transition: "all 0.3s ease",
+            boxShadow: isEnabled ? "0 2px 8px rgba(240, 77, 66, 0.3)" : "none",
+          }}
           aria-label={isEnabled ? "Disable Clapboard" : "Enable Clapboard"}
         >
           <span
-            className={`cb-absolute cb-top-0.5 cb-w-4 cb-h-4 cb-bg-white cb-rounded-full cb-transition-transform ${
-              isEnabled ? "cb-translate-x-5" : "cb-translate-x-0.5"
-            }`}
+            style={{
+              position: "absolute",
+              top: 3,
+              left: isEnabled ? 23 : 3,
+              width: 18,
+              height: 18,
+              backgroundColor: "#fff",
+              borderRadius: "50%",
+              transition: "all 0.3s ease",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+            }}
           />
         </button>
       </div>
 
       {/* Current Site Info */}
-      <div className="cb-border-t cb-border-surface-lighter cb-pt-3">
-        <div className="cb-text-xs cb-text-gray-500 cb-mb-1">Current Page</div>
-        <div className="cb-flex cb-items-center cb-gap-2">
-          <span className="cb-text-sm cb-text-white cb-truncate">
-            {currentSite || "Unknown"}
+      <div
+        style={{
+          borderTop: "1px solid rgba(255,255,255,0.08)",
+          paddingTop: 14,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            color: "rgba(255,255,255,0.4)",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            marginBottom: 6,
+          }}
+        >
+          Current Page
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              fontSize: 13,
+              color: "#fff",
+              fontWeight: 500,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+            }}
+          >
+            {currentSite || "No page detected"}
           </span>
           {currentSite && (
             <span
-              className={`cb-text-xs cb-px-1.5 cb-py-0.5 cb-rounded ${
-                isSupportedSite
-                  ? "cb-bg-green-900 cb-text-green-400"
-                  : "cb-bg-surface-lighter cb-text-gray-500"
-              }`}
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                padding: "4px 8px",
+                borderRadius: 6,
+                background: isSupportedSite
+                  ? "rgba(74, 222, 128, 0.15)"
+                  : "rgba(255,255,255,0.08)",
+                color: isSupportedSite ? "#4ade80" : "rgba(255,255,255,0.5)",
+                border: `1px solid ${isSupportedSite ? "rgba(74, 222, 128, 0.3)" : "rgba(255,255,255,0.1)"}`,
+              }}
             >
               {isSupportedSite ? "Supported" : "Not supported"}
             </span>
@@ -114,24 +177,47 @@ const StatusCard: React.FC<StatusCardProps> = ({
         </div>
       </div>
 
-      {/* Not enabled warning */}
+      {/* Disabled Warning */}
       {!isEnabled && (
-        <div className="cb-mt-3 cb-pt-3 cb-border-t cb-border-surface-lighter">
-          <p className="cb-text-xs cb-text-yellow-400">
-            Clapboard is currently disabled. Toggle on to see ratings and scores.
-          </p>
+        <div
+          style={{
+            marginTop: 14,
+            paddingTop: 14,
+            borderTop: "1px solid rgba(255,255,255,0.08)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "10px 12px",
+              background: "rgba(250, 204, 21, 0.1)",
+              borderRadius: 8,
+              border: "1px solid rgba(250, 204, 21, 0.2)",
+            }}
+          >
+            <span style={{ fontSize: 14 }}>⚠️</span>
+            <p style={{ margin: 0, fontSize: 12, color: "#facc15" }}>
+              Clapboard is disabled. Toggle on to see ratings.
+            </p>
+          </div>
         </div>
       )}
+
+      {/* Pulse Animation Keyframes */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.6; transform: scale(0.95); }
+        }
+      `}</style>
     </div>
   );
 };
 
-/**
- * Check if the current site is supported
- */
 function checkIfSupported(hostname: string | null): boolean {
   if (!hostname) return false;
-
   const supportedPatterns = [
     "netflix.com",
     "disneyplus.com",
@@ -139,7 +225,6 @@ function checkIfSupported(hostname: string | null): boolean {
     "amazon.com",
     "crave.ca",
   ];
-
   return supportedPatterns.some((pattern) => hostname.includes(pattern));
 }
 
