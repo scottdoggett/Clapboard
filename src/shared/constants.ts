@@ -35,9 +35,9 @@ export const SUPPORTED_SITES = {
     name: "Prime Video",
     hostPatterns: ["primevideo.com", "amazon.com/gp/video"],
     selectors: {
-      titlePage: '[data-automation-id="title-detail-page"]',
-      titleText: '[data-automation-id="title"]',
-      overlayAnchor: ".dv-dp-node-meta-info",
+      titlePage: 'h1',
+      titleText: 'h1',
+      overlayAnchor: "body",
     },
   },
   crave: {

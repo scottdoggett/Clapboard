@@ -29,7 +29,13 @@ let urlCheckTimer: ReturnType<typeof setTimeout> | null = null;
  * Initialize the content script
  */
 function init(): void {
-  console.log("[Clapboard] Content script loaded on:", window.location.hostname);
+  // Very visible log to confirm script is running
+  console.log(
+    "%c[Clapboard] Content script loaded!",
+    "background: #f04d42; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
+  );
+  console.log("[Clapboard] Current URL:", window.location.href);
+  console.log("[Clapboard] Hostname:", window.location.hostname);
 
   // Verify we're on a supported site
   const site = detectSite();
@@ -103,12 +109,14 @@ function onUrlChange(): void {
  * Check if we're on a title detail page and should show the overlay
  */
 function checkForTitle(): void {
+  console.log("[Clapboard] Checking for title on page...");
   const titleInfo = detectCurrentTitle();
 
   if (titleInfo) {
-    console.log("[Clapboard] Detected title:", titleInfo.title);
+    console.log("[Clapboard] Detected title:", titleInfo.title, titleInfo);
     mountOverlay(titleInfo);
   } else {
+    console.log("[Clapboard] No title detected on this page");
     unmountOverlay();
   }
 }
