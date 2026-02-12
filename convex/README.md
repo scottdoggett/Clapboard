@@ -1,91 +1,90 @@
-# Convex Backend
+# Welcome to your Convex functions directory!
 
-This directory contains the Convex backend for Clapboard.
+Write your Convex functions here.
+See https://docs.convex.dev/functions for more.
 
-## Overview
+A query function that takes two arguments looks like:
 
-[Convex](https://www.convex.dev/) is a full-stack TypeScript development platform that provides:
+```ts
+// convex/myFunctions.ts
+import { query } from "./_generated/server";
+import { v } from "convex/values";
 
-- **Real-time database** — Automatic reactivity for live updates
-- **Serverless functions** — Queries and mutations with automatic TypeScript types
-- **File storage** — For any media assets
-- **Scheduling** — Cron jobs and scheduled functions
+export const myQueryFunction = query({
+  // Validators for arguments.
+  args: {
+    first: v.number(),
+    second: v.string(),
+  },
 
-## Structure
+  // Function implementation.
+  handler: async (ctx, args) => {
+    // Read the database as many times as you need here.
+    // See https://docs.convex.dev/database/reading-data.
+    const documents = await ctx.db.query("tablename").collect();
 
-```
-convex/
-├── _generated/       # Auto-generated files (gitignored)
-├── schema.ts         # Database schema definition
-├── auth.ts           # Authentication helpers (Clerk integration)
-├── movies.ts         # Movie queries & mutations
-├── ratings.ts        # Ratings aggregation functions
-├── reviews.ts        # AI review processing (Phase 3)
-└── README.md         # This file
-```
+    // Arguments passed from the client are properties of the args object.
+    console.log(args.first, args.second);
 
-## Schema
-
-The database has four main tables:
-
-### `movies`
-Core movie/show metadata including title, year, external IDs (TMDB, IMDb), and basic info.
-
-### `ratings`
-Aggregated ratings from multiple sources (IMDb, Rotten Tomatoes, Metacritic, Letterboxd). Each movie can have one rating per source.
-
-### `users`
-User accounts synced from Clerk authentication. Phase 4 feature.
-
-### `reviews`
-Review text and AI-generated category scores. Phase 3 feature.
-
-### `awards`
-Award wins and nominations (Oscars, Golden Globes, etc.).
-
-## Development
-
-### Setup
-
-1. Create a Convex account at [convex.dev](https://www.convex.dev/)
-2. Install the Convex CLI: `npm install -g convex`
-3. Initialize: `npx convex dev`
-
-### Running
-
-```bash
-# Start Convex dev server (watches for changes)
-npx convex dev
-
-# Deploy to production
-npx convex deploy
+    // Write arbitrary JavaScript here: filter, aggregate, build derived data,
+    // remove non-public properties, or create new objects.
+    return documents;
+  },
+});
 ```
 
-### Environment Variables
+Using this query function in a React component looks like:
 
-Set these in your Convex dashboard:
-
-- `CLERK_JWT_ISSUER` — Clerk JWT issuer URL (for auth)
-
-## Usage from Extension
-
-The extension communicates with Convex through the background service worker:
-
-```typescript
-import { ConvexClient } from "convex/browser";
-import { api } from "@convex/_generated/api";
-
-const client = new ConvexClient(process.env.CONVEX_URL);
-
-// Query movies
-const movie = await client.query(api.movies.getByTitle, { title: "Inception" });
-
-// Get ratings
-const ratings = await client.query(api.ratings.getForMovie, { movieId: movie._id });
+```ts
+const data = useQuery(api.myFunctions.myQueryFunction, {
+  first: 10,
+  second: "hello",
+});
 ```
 
-## Notes
+A mutation function looks like:
 
-- The `_generated/` directory is created by Convex and should not be edited manually
-- Always run `npx convex dev` when making schema changes to regenerate types
-- See the [Convex docs](https://docs.convex.dev/) for more information
+```ts
+// convex/myFunctions.ts
+import { mutation } from "./_generated/server";
+import { v } from "convex/values";
+
+export const myMutationFunction = mutation({
+  // Validators for arguments.
+  args: {
+    first: v.string(),
+    second: v.string(),
+  },
+
+  // Function implementation.
+  handler: async (ctx, args) => {
+    // Insert or modify documents in the database here.
+    // Mutations can also read from the database like queries.
+    // See https://docs.convex.dev/database/writing-data.
+    const message = { body: args.first, author: args.second };
+    const id = await ctx.db.insert("messages", message);
+
+    // Optionally, return a value from your mutation.
+    return await ctx.db.get("messages", id);
+  },
+});
+```
+
+Using this mutation function in a React component looks like:
+
+```ts
+const mutation = useMutation(api.myFunctions.myMutationFunction);
+function handleButtonPress() {
+  // fire and forget, the most common way to use mutations
+  mutation({ first: "Hello!", second: "me" });
+  // OR
+  // use the result once the mutation has completed
+  mutation({ first: "Hello!", second: "me" }).then((result) =>
+    console.log(result),
+  );
+}
+```
+
+Use the Convex CLI to push your functions to a deployment. See everything
+the Convex CLI can do by running `npx convex -h` in your project root
+directory. To learn more, launch the docs with `npx convex docs`.

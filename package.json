@@ -8,7 +8,8 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build && node scripts/build.ts",
+    "build": "tsx scripts/build.ts",
+    "build:watch": "tsx watch scripts/build.ts",
     "lint": "tsc --noEmit && eslint ."
   },
   "dependencies": {
@@ -18,15 +19,18 @@
     "react-dom": "*"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
     "@types/chrome": "*",
     "@types/node": "*",
     "@types/react": "*",
     "@types/react-dom": "*",
     "autoprefixer": "*",
+    "esbuild": "*",
     "eslint": "*",
     "eslint-config-next": "*",
     "postcss": "*",
     "tailwindcss": "*",
+    "tsx": "*",
     "typescript": "*"
   },
   "engines": {
