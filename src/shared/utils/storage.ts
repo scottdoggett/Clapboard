@@ -7,7 +7,7 @@
  */
 
 import { STORAGE_KEYS, CACHE_CONFIG } from "@shared/constants";
-import type { AiScoreResult, MovieData } from "@shared/types/movie";
+import type { AiScoreOutcome, MovieData } from "@shared/types/movie";
 
 /**
  * User-configurable extension settings
@@ -122,12 +122,14 @@ export async function setCachedMovieData(
 }
 
 /**
- * A cached AI scoring result. `null` records "we asked and it couldn't be
- * scored", which matters more here than for lookups — a scoring run is the
- * most expensive thing the extension can trigger.
+ * A cached AI scoring outcome.
+ *
+ * Only settled outcomes land here — scores, or a confirmed lack of reviews.
+ * "Pending" and "rate limited" are about this moment, not this title, and
+ * caching them would keep the overlay stuck on a state that has since passed.
  */
 interface AiScoreCacheEntry {
-  result: AiScoreResult | null;
+  outcome: Extract<AiScoreOutcome, { status: "scored" | "unavailable" }>;
   fetchedAt: number;
 }
 
@@ -157,14 +159,15 @@ export async function getCachedAiScores(
 }
 
 /**
- * Cache an AI scoring result, including a failure to score.
+ * Cache a settled AI scoring outcome, including a confirmed lack of reviews —
+ * that result cost a full run to establish and must not be re-paid for.
  *
  * @param movieId - Convex document ID for the movie
- * @param result - The scores, or null when the title couldn't be scored
+ * @param outcome - A scored or unavailable outcome; transient ones aren't cached
  */
 export async function setCachedAiScores(
   movieId: string,
-  result: AiScoreResult | null
+  outcome: AiScoreCacheEntry["outcome"]
 ): Promise<void> {
   const stored = await chrome.storage.local.get(STORAGE_KEYS.AI_SCORES);
   const cache = (stored[STORAGE_KEYS.AI_SCORES] ?? {}) as Record<
@@ -172,7 +175,7 @@ export async function setCachedAiScores(
     AiScoreCacheEntry
   >;
 
-  cache[movieId] = { result, fetchedAt: Date.now() };
+  cache[movieId] = { outcome, fetchedAt: Date.now() };
 
   const keys = Object.keys(cache);
   if (keys.length > CACHE_CONFIG.MAX_ENTRIES) {

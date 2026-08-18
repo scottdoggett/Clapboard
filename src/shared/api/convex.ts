@@ -20,7 +20,7 @@
 
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
-import type { AiScoreResult, Movie, Rating, MovieData } from "@shared/types/movie";
+import type { AiScoreOutcome, Movie, Rating, MovieData } from "@shared/types/movie";
 
 // Convex client instance, keyed by the URL it was created for
 let client: ConvexHttpClient | null = null;
@@ -46,7 +46,7 @@ const lookupRef = makeFunctionReference<
 const aiScoresRef = makeFunctionReference<
   "action",
   { movieId: string; title: string; year?: number; type?: "movie" | "series" },
-  AiScoreResult | null
+  AiScoreOutcome
 >("aiScores:generate");
 
 /**
@@ -116,7 +116,7 @@ export async function lookupMovie(
  * @param title - Canonical title, as resolved by the ratings lookup
  * @param year - Release year, when known
  * @param type - Content type hint
- * @returns The scores, or null when the title couldn't be scored
+ * @returns One of four outcomes — scored, unavailable, pending, or rate limited
  */
 export async function requestAiScores(
   url: string,
@@ -124,7 +124,7 @@ export async function requestAiScores(
   title: string,
   year?: number,
   type?: "movie" | "series"
-): Promise<AiScoreResult | null> {
+): Promise<AiScoreOutcome> {
   const convex = getConvexClient(url);
 
   return await convex.action(aiScoresRef, { movieId, title, year, type });

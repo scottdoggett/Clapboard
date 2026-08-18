@@ -60,6 +60,20 @@ export interface AiScoreResult {
 }
 
 /**
+ * What a scoring request came back as.
+ *
+ * Four outcomes rather than "scores or nothing", because the overlay has to
+ * say something different for each. "No reviews" is permanent and worth
+ * saying plainly; a pending run and a spend ceiling are both "later", but only
+ * one of them is about this title.
+ */
+export type AiScoreOutcome =
+  | { status: "scored"; result: AiScoreResult }
+  | { status: "unavailable" }
+  | { status: "pending" }
+  | { status: "rateLimited"; retryAfterMs: number };
+
+/**
  * Movie rating from a single source
  */
 export interface Rating {

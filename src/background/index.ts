@@ -15,7 +15,7 @@ import type {
   MessageResponse,
   ExtensionStatus,
 } from "@shared/types/messages";
-import type { AiScoreResult, MovieData } from "@shared/types/movie";
+import type { AiScoreOutcome, MovieData } from "@shared/types/movie";
 import type { ClapboardSettings } from "@shared/utils/storage";
 import {
   getSettings,
@@ -209,21 +209,21 @@ async function handleAiScoreRequest(payload: {
   title: string;
   year?: number;
   type?: "movie" | "series";
-}): Promise<MessageResponse<AiScoreResult | null>> {
+}): Promise<MessageResponse<AiScoreOutcome>> {
   if (!FEATURES.AI_SCORES_ENABLED) {
-    return { success: true, data: null };
+    return { success: true, data: { status: "unavailable" } };
   }
 
   const settings = await getSettings();
 
   if (!settings.enabled) {
-    return { success: true, data: null };
+    return { success: true, data: { status: "unavailable" } };
   }
 
   const cached = await getCachedAiScores(payload.movieId);
   if (cached) {
     console.log("[Clapboard] AI score cache hit for:", payload.title);
-    return { success: true, data: cached.result };
+    return { success: true, data: cached.outcome };
   }
 
   const url = resolveConvexUrl(settings);
@@ -233,7 +233,7 @@ async function handleAiScoreRequest(payload: {
 
   console.log("[Clapboard] Requesting AI scores for:", payload.title);
 
-  const result = await requestAiScores(
+  const outcome = await requestAiScores(
     url,
     payload.movieId,
     payload.title,
@@ -241,9 +241,13 @@ async function handleAiScoreRequest(payload: {
     payload.type
   );
 
-  await setCachedAiScores(payload.movieId, result);
+  // Only settled outcomes are worth remembering. Caching "pending" or "rate
+  // limited" would pin the overlay to a state that has already passed.
+  if (outcome.status === "scored" || outcome.status === "unavailable") {
+    await setCachedAiScores(payload.movieId, outcome);
+  }
 
-  return { success: true, data: result };
+  return { success: true, data: outcome };
 }
 
 /**

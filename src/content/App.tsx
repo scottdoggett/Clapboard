@@ -98,6 +98,8 @@ const App: React.FC<AppProps> = ({ titleInfo }) => {
                 result: aiScores.scores,
                 isLoading: aiScores.isLoading,
                 isUnavailable: aiScores.isUnavailable,
+                isPending: aiScores.isPending,
+                retryAfterMs: aiScores.retryAfterMs,
                 error: aiScores.error,
                 onRequest: aiScores.request,
               }

@@ -61,7 +61,7 @@ const SUBMIT_TOOL_NAME = "submit_scores";
 const contentType = v.union(v.literal("movie"), v.literal("series"));
 
 /**
- * The result the extension receives.
+ * A completed set of scores.
  */
 export interface AiScoresResponse {
   scores: {
@@ -77,6 +77,20 @@ export interface AiScoresResponse {
   model: string;
   generatedAt: number;
 }
+
+/**
+ * What a scoring request can come back as.
+ *
+ * Four outcomes rather than "scores or null", because the caller has to say
+ * something different for each: a title with no reviews is permanent, a
+ * pending run and a budget refusal are both "come back later", and only one of
+ * those is the user's fault to wait out.
+ */
+export type AiScoreOutcome =
+  | { status: "scored"; result: AiScoresResponse }
+  | { status: "unavailable" }
+  | { status: "pending" }
+  | { status: "rateLimited"; retryAfterMs: number };
 
 /**
  * Ask Claude to research and score a title.
@@ -164,7 +178,7 @@ async function requestScores(
  * `omdb:lookup` first, so scoring works from OMDb's canonical title rather
  * than whatever the streaming site displayed.
  *
- * @returns The scores, or null when the title couldn't be scored
+ * @returns One of four outcomes — see AiScoreOutcome
  */
 export const generate = action({
   args: {
@@ -176,17 +190,21 @@ export const generate = action({
   handler: async (
     ctx,
     { movieId, title, year, type }
-  ): Promise<AiScoresResponse | null> => {
+  ): Promise<AiScoreOutcome> => {
     const cached = await ctx.runQuery(internal.aiScoresDb.getCachedScores, {
       movieId,
     });
 
     if (cached.status === "hit") {
-      return cached.result;
+      return { status: "scored", result: cached.result };
     }
 
     if (cached.status === "empty") {
-      return null;
+      return { status: "unavailable" };
+    }
+
+    if (cached.status === "pending") {
+      return { status: "pending" };
     }
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -196,8 +214,33 @@ export const generate = action({
       );
     }
 
-    const client = new Anthropic({ apiKey });
-    const submission = await requestScores(client, title, year, type);
+    // Nothing above this line spends money. The claim is the gate: it reserves
+    // the title and checks the deployment's budget in one transaction, so
+    // concurrent requests can't both get through.
+    const claim = await ctx.runMutation(internal.aiScoresDb.claimScoringRun, {
+      movieId,
+    });
+
+    if (!claim.claimed) {
+      if (claim.reason === "budget") {
+        console.warn("[Clapboard] Scoring budget exhausted for:", title);
+        return { status: "rateLimited", retryAfterMs: claim.retryAfterMs ?? 0 };
+      }
+      return { status: "pending" };
+    }
+
+    let submission: unknown;
+    try {
+      const client = new Anthropic({ apiKey });
+      submission = await requestScores(client, title, year, type);
+    } catch (error) {
+      // The failure says nothing about the title, so drop the claim rather
+      // than recording a verdict the reviews don't support. The run still
+      // counted against the budget — the call was made.
+      await ctx.runMutation(internal.aiScoresDb.releaseScoringRun, { movieId });
+      throw error;
+    }
+
     const parsed = submission === null ? null : parseScoreSubmission(submission);
 
     if (!parsed) {
@@ -209,7 +252,7 @@ export const generate = action({
         sources: [],
         model: MODEL,
       });
-      return null;
+      return { status: "unavailable" };
     }
 
     const generatedAt = await ctx.runMutation(internal.aiScoresDb.persistScores, {
@@ -222,11 +265,14 @@ export const generate = action({
     });
 
     return {
-      scores: parsed.scores,
-      summary: parsed.summary,
-      sources: parsed.sources,
-      model: MODEL,
-      generatedAt,
+      status: "scored",
+      result: {
+        scores: parsed.scores,
+        summary: parsed.summary,
+        sources: parsed.sources,
+        model: MODEL,
+        generatedAt,
+      },
     };
   },
 });

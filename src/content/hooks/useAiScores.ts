@@ -11,7 +11,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { AiScoreResult } from "@shared/types/movie";
+import type { AiScoreOutcome, AiScoreResult } from "@shared/types/movie";
 import type { Message, MessageResponse, MessageResponseMap } from "@shared/types/messages";
 
 interface UseAiScoresResult {
@@ -19,8 +19,12 @@ interface UseAiScoresResult {
   isLoading: boolean;
   /** True once a request has come back with no scores for this title */
   isUnavailable: boolean;
+  /** Another run is already scoring this title */
+  isPending: boolean;
+  /** The deployment is out of scoring budget; ms until it frees up */
+  retryAfterMs: number | null;
   error: Error | null;
-  /** Start a request; a no-op while one is in flight or already answered */
+  /** Start a request; a no-op while one is in flight or already settled */
   request: () => void;
 }
 
@@ -53,6 +57,8 @@ export function useAiScores(titleInfo: TitleInfo | null): UseAiScoresResult {
   const [scores, setScores] = useState<AiScoreResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isUnavailable, setIsUnavailable] = useState(false);
+  const [isPending, setIsPending] = useState(false);
+  const [retryAfterMs, setRetryAfterMs] = useState<number | null>(null);
   const [error, setError] = useState<Error | null>(null);
 
   // Discards a response that arrives after the user has navigated to another
@@ -66,14 +72,37 @@ export function useAiScores(titleInfo: TitleInfo | null): UseAiScoresResult {
     setScores(null);
     setIsLoading(false);
     setIsUnavailable(false);
+    setIsPending(false);
+    setRetryAfterMs(null);
     setError(null);
   }, [movieId]);
 
+  const applyOutcome = useCallback((outcome: AiScoreOutcome) => {
+    switch (outcome.status) {
+      case "scored":
+        setScores(outcome.result);
+        return;
+      case "unavailable":
+        setIsUnavailable(true);
+        return;
+      case "pending":
+        setIsPending(true);
+        return;
+      case "rateLimited":
+        setRetryAfterMs(outcome.retryAfterMs);
+        return;
+    }
+  }, []);
+
   const request = useCallback(() => {
+    // Retryable states deliberately fall through: a pending run finishes and a
+    // budget window frees up, so reopening the section should ask again.
     if (!titleInfo || isLoading || scores || isUnavailable) return;
 
     const currentRequest = ++requestId.current;
     setIsLoading(true);
+    setIsPending(false);
+    setRetryAfterMs(null);
     setError(null);
 
     void (async () => {
@@ -90,11 +119,7 @@ export function useAiScores(titleInfo: TitleInfo | null): UseAiScoresResult {
 
         if (currentRequest !== requestId.current) return;
 
-        if (data) {
-          setScores(data);
-        } else {
-          setIsUnavailable(true);
-        }
+        applyOutcome(data);
       } catch (err) {
         if (currentRequest !== requestId.current) return;
 
@@ -106,9 +131,9 @@ export function useAiScores(titleInfo: TitleInfo | null): UseAiScoresResult {
         }
       }
     })();
-  }, [titleInfo, isLoading, scores, isUnavailable]);
+  }, [titleInfo, isLoading, scores, isUnavailable, applyOutcome]);
 
-  return { scores, isLoading, isUnavailable, error, request };
+  return { scores, isLoading, isUnavailable, isPending, retryAfterMs, error, request };
 }
 
 export default useAiScores;

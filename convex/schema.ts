@@ -10,6 +10,7 @@
  * - users: User accounts (Phase 4)
  * - reviews: Review data for AI processing (Phase 3)
  * - aiScores: Category scores derived from published reviews (Phase 3)
+ * - scoringRuns: Rolling log of AI scoring runs, for the spend ceiling (Phase 3)
  */
 
 import { defineSchema, defineTable } from "convex/server";
@@ -164,8 +165,14 @@ export default defineSchema({
     // Reference to the movie
     movieId: v.id("movies"),
 
-    // Whether this run produced usable scores
-    status: v.union(v.literal("scored"), v.literal("insufficient")),
+    // Whether this run produced usable scores. A "pending" row is a claim
+    // written before the API call, so two tabs opening the same title don't
+    // both pay for it — see PENDING_TIMEOUT_MS for how a dead claim expires.
+    status: v.union(
+      v.literal("scored"),
+      v.literal("insufficient"),
+      v.literal("pending")
+    ),
 
     // Category scores on a 0-10 scale. Each is optional: reviews that never
     // mention the soundtrack should leave it empty rather than guess.
@@ -196,6 +203,20 @@ export default defineSchema({
 
     generatedAt: v.number(),
   }).index("by_movie", ["movieId"]),
+
+  /**
+   * Scoring runs table
+   *
+   * A log of when AI scoring runs started, and nothing else. It exists purely
+   * to answer "how many runs in the last hour/day", which is what stops a
+   * browse session from turning into an unbounded API bill — the per-title
+   * caches can't do that, since each new title is a legitimate cache miss.
+   *
+   * Rows older than the longest budget window are pruned on write.
+   */
+  scoringRuns: defineTable({
+    startedAt: v.number(),
+  }).index("by_started_at", ["startedAt"]),
 
   /**
    * Lookups table

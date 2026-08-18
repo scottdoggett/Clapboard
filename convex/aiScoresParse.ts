@@ -302,3 +302,101 @@ export function aggregateScores(results: AiScoreResult[]): AiScoreResult | null 
 
   return { scores, sources };
 }
+
+// ---------------------------------------------------------------------------
+// Spend guard
+// ---------------------------------------------------------------------------
+
+/**
+ * How many scoring runs the deployment will start in a rolling window.
+ *
+ * The caches bound how often a *given* title is scored; nothing bounds how
+ * many distinct titles a user can walk past. One browse session down a Netflix
+ * row is dozens of titles, and each cold one is a web search plus an Opus call
+ * — so the deployment gets a hard ceiling of its own.
+ *
+ * These are deliberately low. A single person browsing hits maybe a handful of
+ * titles they actually care about; anything an order of magnitude past that is
+ * a loop or a bug, and the cost of being wrong is money rather than a stale
+ * card.
+ */
+export const RUN_BUDGET = {
+  perHour: 20,
+  perDay: 100,
+} as const;
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * A pending run older than this is treated as abandoned.
+ *
+ * The action marks a title as in-flight before calling the API so two tabs
+ * opening the same title don't both pay for it. If that action then dies —
+ * timeout, deploy, crash — the marker would strand the title forever without
+ * this.
+ */
+export const PENDING_TIMEOUT_MS = 5 * 60 * 1000;
+
+export type BudgetVerdict =
+  | { allowed: true }
+  | { allowed: false; retryAfterMs: number };
+
+/**
+ * Decide whether another scoring run fits in the budget.
+ *
+ * Pure so the window arithmetic can be tested directly — the alternative is
+ * waiting an hour to find out the boundary is off by one.
+ *
+ * @param runStartTimes - Start times of prior runs, any order, may include old ones
+ * @param now - Current time in ms
+ * @returns Whether a run is allowed, and if not, how long until one is
+ */
+export function evaluateBudget(runStartTimes: number[], now: number): BudgetVerdict {
+  const inHour: number[] = [];
+  const inDay: number[] = [];
+
+  for (const startedAt of runStartTimes) {
+    const age = now - startedAt;
+    if (age < 0 || age >= DAY_MS) continue;
+
+    inDay.push(startedAt);
+    if (age < HOUR_MS) inHour.push(startedAt);
+  }
+
+  // Whichever ceiling is hit first decides, and the wait is until the oldest
+  // run in that window falls out of it
+  const hourWait =
+    inHour.length >= RUN_BUDGET.perHour
+      ? Math.min(...inHour) + HOUR_MS - now
+      : 0;
+
+  const dayWait =
+    inDay.length >= RUN_BUDGET.perDay ? Math.min(...inDay) + DAY_MS - now : 0;
+
+  const retryAfterMs = Math.max(hourWait, dayWait);
+
+  return retryAfterMs > 0 ? { allowed: false, retryAfterMs } : { allowed: true };
+}
+
+/**
+ * Is a pending marker still worth respecting, or has its run died?
+ *
+ * @param startedAt - When the pending run was claimed
+ * @param now - Current time in ms
+ * @returns True if a run is genuinely in flight
+ */
+export function isPendingLive(startedAt: number, now: number): boolean {
+  return now - startedAt < PENDING_TIMEOUT_MS;
+}
+
+/**
+ * Run log entries older than the longest budget window can never affect a
+ * verdict, so they're pruned rather than accumulated forever.
+ *
+ * @param now - Current time in ms
+ * @returns The timestamp before which run records are dead weight
+ */
+export function runLogCutoff(now: number): number {
+  return now - DAY_MS;
+}

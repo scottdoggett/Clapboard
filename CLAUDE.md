@@ -57,7 +57,7 @@ Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patt
 
 ### Backend
 
-**Convex** (`convex/`) provides the database with tables: `movies`, `ratings`, `reviews`, `awards`, `aiScores`, `users`, `lookups`. Schema in `convex/schema.ts`. Ratings are stored per-source (IMDb, RT, Metacritic, Letterboxd) with their native scales.
+**Convex** (`convex/`) provides the database with tables: `movies`, `ratings`, `reviews`, `awards`, `aiScores`, `scoringRuns`, `users`, `lookups`. Schema in `convex/schema.ts`. Ratings are stored per-source (IMDb, RT, Metacritic, Letterboxd) with their native scales.
 
 ### Data Flow
 
@@ -89,7 +89,13 @@ The roadmap called for scraping reviews and then analyzing them. It does both in
 
 - `convex/aiScores.ts` is a `"use node"` action — Convex Node files can only export actions, so the database functions live in `convex/aiScoresDb.ts`. `convex/aiScoresParse.ts` holds the prompt, the tool schema, and the validation, free of Convex and SDK imports so `npm run verify:ai-scores` can exercise them.
 - The key lives in the deployment (`npx convex env set ANTHROPIC_API_KEY <key>`), like the OMDb one.
-- **Cost is the design constraint.** A run means a web search and an Opus call, so: the overlay requests scores only when the user opens the AI section (never on page load), and *failures are cached too* — a title with too few reviews must not re-run on every view.
+- **Cost is the design constraint**, and there are three separate guards:
+  1. The overlay requests scores only when the user opens the AI section, never on page load.
+  2. *Failures are cached too* — a title with too few reviews must not re-run on every view.
+  3. A deployment-wide ceiling (`RUN_BUDGET` in `aiScoresParse.ts`: 20/hour, 100/day). The per-title caches can't bound this — every new title is a legitimate cache miss, and one scroll down a Netflix row is dozens of them.
+- **`aiScoresDb:claimScoringRun` is the only gate on spending.** It checks the budget *and* reserves the title in one Convex mutation, which is transactional — doing the check in the action would leave a race, and the thing being raced for costs money. A claim writes a `pending` row so two tabs on the same title don't both pay; a claim whose action dies expires after `PENDING_TIMEOUT_MS` rather than stranding the title.
+- `generate` returns a **four-way outcome** (`scored` / `unavailable` / `pending` / `rateLimited`), not scores-or-null. The overlay says something different for each, and the background worker caches only the two settled ones — caching "pending" would pin the card to a state that has already passed.
+- `aiScoresDb:getBudgetStatus` is public so the remaining budget can be checked from the CLI or the popup.
 - A category the reviews didn't discuss comes back missing, not guessed. The parser drops non-numbers, clamps to 0-10, and rejects a submission that has an overall score but fewer than two categories behind it. Sources must be `http(s)` URLs.
 - The whole feature is gated on `FEATURES.AI_SCORES_ENABLED`, which is **off**. With it off the background worker short-circuits the message and the overlay hides the section.
 
@@ -129,11 +135,11 @@ Defined in both `tsconfig.json` and the esbuild alias plugin:
 
 Phase 1 (Ratings Overlay) and Phase 2 (Awards) are implemented end to end: title detection → background worker → Convex → OMDb → overlay.
 
-Phase 3 (AI review scoring) is implemented but **unproven** — it has never run against the live API. The pure layers are verified (`npm run verify:ai-scores`) and the SDK call type-checks, but the round trip needs a deployment, an `ANTHROPIC_API_KEY`, and `FEATURES.AI_SCORES_ENABLED` flipped on. Phase 4 (user accounts/Clerk auth) is still stubbed.
+Phase 3 (AI review scoring) is implemented, and everything except the model call itself has now been exercised against a live deployment: the schema deploys, and `claimScoringRun` was driven through claim → pending-dedup → release → budget exhaustion via `npx convex run`. What remains unproven is the Claude call — that needs an `ANTHROPIC_API_KEY` and `FEATURES.AI_SCORES_ENABLED` flipped on. Phase 4 (user accounts/Clerk auth) is still stubbed.
 
 Known gaps in the current phases:
 - Letterboxd is in the `RatingSource` union and the UI but has no provider — OMDb doesn't carry it and there's no public API.
 - Awards come from OMDb's free-text summary, so they're counts ("4 Oscars") rather than categories ("Best Picture").
-- AI scoring has no per-title cost ceiling and no rate limit of its own. The caches bound how often a run happens for a given title, but nothing bounds how many distinct titles one user can trigger.
+- The AI scoring ceiling is **per deployment, not per user** — there are no user accounts yet (Phase 4), so it can't be anything else. One person can spend the whole budget and lock everyone else out until the window rolls.
 - `convex/reviews.ts` still holds the original per-review scoring stubs. Nothing calls them now — the web-search path replaced them — but `aggregateScores` in `aiScoresParse.ts` is the averaging half of that design if per-review scoring ever comes back.
 - The platform DOM selectors in `SUPPORTED_SITES` are still unverified against the live sites. The URL gate and the metadata fallbacks mean a stale selector degrades rather than breaks — the overlay falls back to JSON-LD or the page title instead of showing the wrong thing — but the selector lists themselves are educated guesses until someone checks them with an account on each platform.

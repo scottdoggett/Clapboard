@@ -13,8 +13,13 @@ import {
   parseScoreSubmission,
   aggregateScores,
   buildScoringPrompt,
+  evaluateBudget,
+  isPendingLive,
+  runLogCutoff,
   SCORE_CATEGORIES,
   SCORE_TOOL_SCHEMA,
+  RUN_BUDGET,
+  PENDING_TIMEOUT_MS,
   type AiScoreResult,
 } from "../convex/aiScoresParse";
 
@@ -230,6 +235,86 @@ check(
   [...SCORE_TOOL_SCHEMA.required].sort()
 );
 check("schema closed for strict mode", SCORE_TOOL_SCHEMA.additionalProperties, false);
+
+// --- Spend guard -----------------------------------------------------------
+// The window arithmetic is what stands between a browse session and an
+// unbounded bill, and its boundaries can't be checked by waiting an hour.
+
+const NOW = 1_700_000_000_000;
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** n runs, spaced `spacing` apart, the oldest `oldestAge` ms ago */
+function runs(n: number, oldestAge: number, spacing: number): number[] {
+  return Array.from({ length: n }, (_, i) => NOW - oldestAge + i * spacing);
+}
+
+check("no runs is allowed", evaluateBudget([], NOW), { allowed: true });
+check(
+  "one under the hourly ceiling",
+  evaluateBudget(runs(RUN_BUDGET.perHour - 1, 30 * MINUTE, MINUTE), NOW),
+  { allowed: true }
+);
+
+const atHourlyCeiling = evaluateBudget(
+  runs(RUN_BUDGET.perHour, 30 * MINUTE, MINUTE),
+  NOW
+);
+check("at the hourly ceiling is refused", atHourlyCeiling.allowed, false);
+// The wait runs until the oldest run leaves the window, not a fixed hour
+check(
+  "retry is when the oldest run ages out",
+  atHourlyCeiling.allowed === false ? atHourlyCeiling.retryAfterMs : null,
+  30 * MINUTE
+);
+
+// Runs that have already left the hour window must stop counting against it
+check(
+  "runs older than an hour free up the hourly budget",
+  evaluateBudget(runs(RUN_BUDGET.perHour, 3 * HOUR, MINUTE), NOW),
+  { allowed: true }
+);
+
+// The daily ceiling binds even when the hourly one is clear
+const spreadOverDay = runs(RUN_BUDGET.perDay, 20 * HOUR, 5 * MINUTE);
+const atDailyCeiling = evaluateBudget(spreadOverDay, NOW);
+check("at the daily ceiling is refused", atDailyCeiling.allowed, false);
+check(
+  "daily refusal waits out the oldest run of the day",
+  atDailyCeiling.allowed === false
+    ? Math.round(atDailyCeiling.retryAfterMs / HOUR)
+    : null,
+  4
+);
+check(
+  "runs older than a day are ignored entirely",
+  evaluateBudget(runs(RUN_BUDGET.perDay, 30 * HOUR, MINUTE), NOW),
+  { allowed: true }
+);
+
+// A clock skew between the deployment and a stored row must not grant free runs
+check(
+  "future timestamps are ignored",
+  evaluateBudget(
+    Array.from({ length: RUN_BUDGET.perHour }, () => NOW + HOUR),
+    NOW
+  ),
+  { allowed: true }
+);
+check("unordered input is handled", evaluateBudget(
+  runs(RUN_BUDGET.perHour, 30 * MINUTE, MINUTE).reverse(),
+  NOW
+).allowed, false);
+
+// --- Pending claims --------------------------------------------------------
+check("a fresh claim is live", isPendingLive(NOW - MINUTE, NOW), true);
+check(
+  "a claim past its timeout is abandoned",
+  isPendingLive(NOW - PENDING_TIMEOUT_MS - 1, NOW),
+  false
+);
+check("run log cutoff is one day back", runLogCutoff(NOW), NOW - DAY);
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

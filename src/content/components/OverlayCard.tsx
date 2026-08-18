@@ -27,8 +27,12 @@ export interface AiScoresState {
   isLoading: boolean;
   /** A request came back with nothing — too few reviews to score the title */
   isUnavailable: boolean;
+  /** Another run is already scoring this title */
+  isPending: boolean;
+  /** Scoring budget is spent; ms until it frees up, or null */
+  retryAfterMs: number | null;
   error: Error | null;
-  /** Kick off a scoring request. Called the first time the section is opened. */
+  /** Kick off a scoring request. Called each time the section is opened. */
   onRequest: () => void;
 }
 
@@ -168,30 +172,56 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
 const AiScoresSection: React.FC<{ state: AiScoresState }> = ({ state }) => {
   if (state.isLoading) {
     return (
-      <p className="cb-text-gray-400 cb-text-xs cb-m-0 cb-py-2">
-        Reading reviews… this takes a moment the first time.
-      </p>
+      <Notice>Reading reviews… this takes a moment the first time.</Notice>
     );
   }
 
   if (state.error) {
+    return <Notice>Couldn&apos;t generate scores: {state.error.message}</Notice>;
+  }
+
+  if (state.result) {
+    return <ScoreBreakdown result={state.result} />;
+  }
+
+  // Both remaining states are "try later", so say which later — an unexplained
+  // "come back" is indistinguishable from the feature being broken
+  if (state.isPending) {
+    return <Notice>Already scoring this one. Reopen in a moment.</Notice>;
+  }
+
+  if (state.retryAfterMs !== null) {
     return (
-      <p className="cb-text-gray-400 cb-text-xs cb-m-0 cb-py-2">
-        Couldn&apos;t generate scores: {state.error.message}
-      </p>
+      <Notice>
+        Scoring limit reached. Try again in {formatWait(state.retryAfterMs)}.
+      </Notice>
     );
   }
 
-  if (state.isUnavailable || !state.result) {
-    return (
-      <p className="cb-text-gray-400 cb-text-xs cb-m-0 cb-py-2">
-        Not enough published reviews to score this one.
-      </p>
-    );
-  }
-
-  return <ScoreBreakdown result={state.result} />;
+  return <Notice>Not enough published reviews to score this one.</Notice>;
 };
+
+/**
+ * A one-line status message in the AI section
+ */
+const Notice: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <p className="cb-text-gray-400 cb-text-xs cb-m-0 cb-py-2">{children}</p>
+);
+
+/**
+ * Render a wait as something a person can act on. Minutes below an hour,
+ * rounded hours above — nobody needs "in 58 minutes and 12 seconds".
+ */
+function formatWait(ms: number): string {
+  const minutes = Math.max(1, Math.ceil(ms / 60000));
+
+  if (minutes < 60) {
+    return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+
+  const hours = Math.round(minutes / 60);
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
 
 /**
  * Minimize icon component

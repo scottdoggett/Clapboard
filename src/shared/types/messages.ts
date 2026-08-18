@@ -8,7 +8,7 @@
  * Uses discriminated unions for type-safe message handling.
  */
 
-import type { AiScoreResult, MovieData } from "./movie";
+import type { AiScoreOutcome, MovieData } from "./movie";
 import type { ClapboardSettings } from "@shared/utils/storage";
 
 /**
@@ -158,7 +158,7 @@ export type MessageResponse<T = unknown> =
  */
 export interface MessageResponseMap {
   GET_MOVIE_DATA: MovieData | null;
-  AI_SCORE_REQUEST: AiScoreResult | null;
+  AI_SCORE_REQUEST: AiScoreOutcome;
   GET_STATUS: ExtensionStatus;
   SET_ENABLED: ClapboardSettings;
   UPDATE_SETTINGS: ClapboardSettings;

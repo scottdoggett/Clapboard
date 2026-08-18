@@ -198,8 +198,15 @@ Each platform requires custom DOM selectors to detect which title the user is vi
 
 Scoring is **off by default** (`FEATURES.AI_SCORES_ENABLED` in
 `src/shared/constants.ts`). Each run costs a web search and a model call, so
-the overlay asks for scores only when you open the AI section, and both the
-successes and the failures are cached.
+there are three guards: the overlay asks only when you open the AI section,
+both successes and failures are cached, and the deployment has a hard ceiling
+of 20 runs an hour / 100 a day (`RUN_BUDGET` in `convex/aiScoresParse.ts`).
+
+Check what's left of the budget at any time:
+
+```bash
+npx convex run aiScoresDb:getBudgetStatus '{}'
+```
 
 ### Phase 4 — Personalization & Social
 - User accounts and authentication
