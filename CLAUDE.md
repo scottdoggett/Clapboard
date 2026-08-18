@@ -12,8 +12,11 @@ npm run verify:parsers  # Check OMDb response parsers against known payloads
 npm run verify:detection # Check the title-detection logic against known URLs and title strings
 npm run verify:ai-scores # Check the AI score parser and spend guard
 npm run verify:dom      # Run title detection against fixture pages in jsdom
+npm run doctor          # Preflight: deployment, keys, feature flags, bundle freshness
 npx convex dev          # Start Convex backend (separate terminal)
 ```
+
+When the overlay shows nothing, run `npm run doctor` before digging — the setup fails in layers (no deployment, no key, stale bundle, flag off) and every one of them looks the same from the streaming site.
 
 `npx convex dev` must have run at least once for `npm run lint` to pass — the
 Convex functions import from `convex/_generated/`, which codegen produces only

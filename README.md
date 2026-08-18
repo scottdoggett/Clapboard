@@ -129,6 +129,9 @@ enter the URL in the extension popup under **Settings** instead.
 ### Development
 
 ```bash
+# Check the whole setup — deployment, API keys, feature flags, bundle freshness
+npm run doctor
+
 # Rebuild the extension on file changes
 npm run build:watch
 
