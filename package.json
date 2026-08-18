@@ -13,6 +13,7 @@
     "verify:parsers": "tsx scripts/verify-parsers.ts",
     "verify:detection": "tsx scripts/verify-detection.ts",
     "verify:ai-scores": "tsx scripts/verify-ai-scores.ts",
+    "verify:dom": "tsx scripts/verify-dom.ts",
     "lint": "tsc --noEmit && eslint ."
   },
   "dependencies": {
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@types/chrome": "*",
+    "@types/jsdom": "^30.0.0",
     "@types/node": "*",
     "@types/react": "*",
     "@types/react-dom": "*",
@@ -34,6 +36,7 @@
     "eslint": "*",
     "eslint-config-next": "*",
     "globals": "^16.5.0",
+    "jsdom": "^30.0.1",
     "postcss": "*",
     "tailwindcss": "^3.4.19",
     "tsx": "*",

@@ -10,7 +10,8 @@ npm run build:watch     # Rebuild on file changes
 npm run lint            # TypeScript type-check (tsc --noEmit) + ESLint
 npm run verify:parsers  # Check OMDb response parsers against known payloads
 npm run verify:detection # Check the title-detection logic against known URLs and title strings
-npm run verify:ai-scores # Check the AI score parser against model tool-call shapes
+npm run verify:ai-scores # Check the AI score parser and spend guard
+npm run verify:dom      # Run title detection against fixture pages in jsdom
 npx convex dev          # Start Convex backend (separate terminal)
 ```
 
@@ -53,7 +54,9 @@ Candidates are merged rather than raced: the first usable title wins, and fields
 
 Content type comes from the URL where the platform encodes it (`/movies/` vs `/series/`), otherwise from a `seriesIndicator` element, otherwise stays `undefined` — a missing episode list may just mean it hasn't rendered.
 
-Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patterns, and selector candidate lists. Add its URL shapes to `scripts/verify-detection.ts` at the same time — that's the only check on the gate, since the live sites need an account and render client-side.
+Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patterns, and selector candidate lists. Add its URL shapes to `scripts/verify-detection.ts` and a fixture page to `scripts/verify-dom.ts` at the same time.
+
+**On the fixtures:** `verify-dom.ts` runs the real `detectCurrentTitle` against jsdom pages modelled on each platform's markup. It proves the machinery — gate, layering, alt-text titles, staleness — but *not* that the selectors match the live sites, since the fixtures are written here. When you add a "this page should detect nothing" fixture, give it a **real title** in title-page markup (a promoted billboard, a hero carousel). A fixture whose heading is "Home" passes on the plausibility check instead of the gate and proves nothing — mutation-testing caught exactly that, twice.
 
 ### Backend
 
@@ -142,4 +145,4 @@ Known gaps in the current phases:
 - Awards come from OMDb's free-text summary, so they're counts ("4 Oscars") rather than categories ("Best Picture").
 - The AI scoring ceiling is **per deployment, not per user** — there are no user accounts yet (Phase 4), so it can't be anything else. One person can spend the whole budget and lock everyone else out until the window rolls.
 - `convex/reviews.ts` still holds the original per-review scoring stubs. Nothing calls them now — the web-search path replaced them — but `aggregateScores` in `aiScoresParse.ts` is the averaging half of that design if per-review scoring ever comes back.
-- The platform DOM selectors in `SUPPORTED_SITES` are still unverified against the live sites. The URL gate and the metadata fallbacks mean a stale selector degrades rather than breaks — the overlay falls back to JSON-LD or the page title instead of showing the wrong thing — but the selector lists themselves are educated guesses until someone checks them with an account on each platform.
+- The platform DOM selectors in `SUPPORTED_SITES` are still unverified against the live sites. `verify:dom` covers the detection machinery, but the selector *strings* are educated guesses until someone checks them with an account on each platform. The URL gate and the metadata fallbacks mean a stale selector degrades rather than breaks — the overlay falls back to JSON-LD or the page title instead of showing the wrong thing.
