@@ -1,21 +1,45 @@
 /**
  * DOM Utilities
  *
- * Helper functions for interacting with streaming site DOMs.
- * Each supported site has unique selectors and structures, so these
- * utilities abstract away the platform-specific details.
+ * The DOM half of title detection. These functions read the streaming site's
+ * page; the decisions about what the strings mean live in
+ * `src/shared/utils/titleDetect.ts`, which stays pure so it can be verified
+ * without a browser (`npm run verify:detection`).
+ *
+ * Detection runs in layers, most trustworthy first:
+ *
+ *   1. The URL must look like a title page at all. This is a hard gate — the
+ *      heading selectors below are deliberately broad, and without it they
+ *      match the browse grid, search results, and the account page.
+ *   2. Platform CSS selectors, tried in order. Read from the live DOM, so they
+ *      always reflect the title currently on screen.
+ *   3. schema.org JSON-LD, then Open Graph tags, then the document title.
+ *      These are structured and stable across redesigns, but they're baked
+ *      into the document at load — on a single-page app they go stale the
+ *      moment the user navigates, so they're only consulted while the document
+ *      is still showing what it was served with.
  */
 
 import { SUPPORTED_SITES, type SupportedSite } from "@shared/constants";
+import {
+  isTitleUrl,
+  contentTypeFromUrl,
+  parseJsonLd,
+  selectTitle,
+  type TitleCandidate,
+  type TitleInfo,
+} from "@shared/utils/titleDetect";
+
+export type { TitleInfo } from "@shared/utils/titleDetect";
 
 /**
- * Title information extracted from the page
+ * The URL the document was served with.
+ *
+ * Captured at module load, which for a content script is the moment the page
+ * loads. If the current URL still matches, nothing has client-side navigated
+ * and the document's baked-in metadata still describes what's on screen.
  */
-export interface TitleInfo {
-  title: string;
-  year?: number;
-  type?: "movie" | "series";
-}
+const initialHref = typeof window !== "undefined" ? window.location.href : "";
 
 /**
  * Detect which streaming site we're on
@@ -24,14 +48,34 @@ export interface TitleInfo {
  */
 export function detectSite(): SupportedSite | null {
   const hostname = window.location.hostname;
+  const href = window.location.href;
 
   for (const [siteKey, config] of Object.entries(SUPPORTED_SITES)) {
-    if (config.hostPatterns.some((pattern) => hostname.includes(pattern))) {
-      return siteKey as SupportedSite;
-    }
+    // Prime Video lives under a path on amazon.com, so some host patterns
+    // include one and have to be matched against the full URL
+    const matches = config.hostPatterns.some((pattern) =>
+      pattern.includes("/") ? href.includes(pattern) : hostname.includes(pattern)
+    );
+    if (matches) return siteKey as SupportedSite;
   }
 
   return null;
+}
+
+/**
+ * Is the current page showing a single title?
+ *
+ * Exposed separately from `detectCurrentTitle` because "not a title page" and
+ * "title page whose heading hasn't rendered yet" call for different handling —
+ * the first means hide the overlay, the second means wait.
+ *
+ * @returns True if the URL identifies a single title
+ */
+export function isOnTitlePage(): boolean {
+  const site = detectSite();
+  if (!site) return false;
+
+  return isTitleUrl(SUPPORTED_SITES[site], new URL(window.location.href));
 }
 
 /**
@@ -44,71 +88,114 @@ export function detectCurrentTitle(): TitleInfo | null {
   if (!site) return null;
 
   const config = SUPPORTED_SITES[site];
+  const url = new URL(window.location.href);
 
-  // Check if we're on a title page
-  const titlePageElement = document.querySelector(config.selectors.titlePage);
-  if (!titlePageElement) return null;
+  // Gate: nothing below is trustworthy on a browse or account page
+  if (!isTitleUrl(config, url)) return null;
 
-  // Extract title text
-  const titleElement = document.querySelector(config.selectors.titleText);
-  if (!titleElement) return null;
+  const urlType = contentTypeFromUrl(config, url);
+  const candidates: TitleCandidate[] = [];
 
-  const rawTitle = titleElement.textContent?.trim();
-  if (!rawTitle) return null;
-
-  // Parse title and year (many titles include year in format "Title (2023)")
-  const { title, year } = parseTitle(rawTitle);
-
-  return {
-    title,
-    year,
-    type: detectContentType(site),
-  };
-}
-
-/**
- * Parse title string to extract year if present
- *
- * @param rawTitle - Raw title string, possibly with year
- * @returns Parsed title and year
- */
-function parseTitle(rawTitle: string): { title: string; year?: number } {
-  // Match patterns like "Movie Title (2023)" or "Show Name (2019-2023)"
-  const yearMatch = rawTitle.match(/^(.+?)\s*\((\d{4})(?:-\d{4})?\)\s*$/);
-
-  if (yearMatch) {
-    return {
-      title: yearMatch[1].trim(),
-      year: parseInt(yearMatch[2], 10),
-    };
+  // Layer 1 — live DOM, ordered from most to least specific selector
+  for (const selector of config.selectors.titleText) {
+    const raw = readTitleText(selector);
+    if (raw) candidates.push({ raw, source: "dom" });
   }
 
-  return { title: rawTitle };
+  // Layer 2 — document metadata, only while it still describes this page
+  if (isDocumentFresh()) {
+    candidates.push(...readStructuredCandidates(config.name));
+  }
+
+  return selectTitle(candidates, urlType ?? detectContentType(site));
 }
 
 /**
- * Detect if current content is a movie or series
+ * Has the document navigated since it was served?
+ *
+ * Single-page apps rewrite the URL without reloading, which leaves JSON-LD,
+ * Open Graph tags, and often the document title describing the previous page.
+ */
+function isDocumentFresh(): boolean {
+  return window.location.href === initialHref;
+}
+
+/**
+ * Read title text from an element, handling the image-based title treatments
+ * Disney+ and Netflix use in place of a text heading.
+ */
+function readTitleText(selector: string): string | null {
+  const element = safeQuerySelector(selector);
+  if (!element) return null;
+
+  // A logo image carries the title in its alt text
+  if (element instanceof HTMLImageElement) {
+    const alt = element.alt?.trim();
+    return alt && alt.length > 0 ? alt : null;
+  }
+
+  const text = element.textContent?.trim();
+  return text && text.length > 0 ? text : null;
+}
+
+/**
+ * Collect title candidates from the document's structured metadata.
+ *
+ * @param siteName - Display name of the platform, for branding removal
+ * @returns Candidates in descending order of trust
+ */
+function readStructuredCandidates(siteName: string): TitleCandidate[] {
+  const candidates: TitleCandidate[] = [];
+
+  // schema.org JSON-LD — carries the year and the movie/series distinction
+  for (const script of safeQuerySelectorAll('script[type="application/ld+json"]')) {
+    const text = script.textContent;
+    if (!text) continue;
+
+    const info = parseJsonLd(text);
+    if (info) {
+      candidates.push({
+        raw: info.title,
+        source: "jsonld",
+        year: info.year,
+        type: info.type,
+      });
+    }
+  }
+
+  // Open Graph / Twitter card titles
+  for (const selector of [
+    'meta[property="og:title"]',
+    'meta[name="twitter:title"]',
+    'meta[name="title"]',
+  ]) {
+    const meta = safeQuerySelector(selector);
+    const content = meta?.getAttribute("content")?.trim();
+    if (content) candidates.push({ raw: content, source: "meta" });
+  }
+
+  // Last resort: the tab title, which is mostly branding
+  const docTitle = document.title?.trim();
+  if (docTitle && docTitle.toLowerCase() !== siteName.toLowerCase()) {
+    candidates.push({ raw: docTitle, source: "documentTitle" });
+  }
+
+  return candidates;
+}
+
+/**
+ * Detect if current content is a movie or series from DOM markers.
+ *
+ * Only reached when the URL didn't say. Every supported site renders an
+ * episode list or season picker for series and nothing equivalent for films.
  *
  * @param site - Current streaming site
  * @returns Content type or undefined if unknown
  */
 function detectContentType(site: SupportedSite): "movie" | "series" | undefined {
-  // The URL is the strongest signal when the platform puts the type in it
-  const url = window.location.href.toLowerCase();
+  const indicators = SUPPORTED_SITES[site].selectors.seriesIndicator;
 
-  if (url.includes("/movie/") || url.includes("/film/")) {
-    return "movie";
-  }
-
-  if (url.includes("/series/") || url.includes("/show/") || url.includes("/tv/")) {
-    return "series";
-  }
-
-  // Otherwise fall back to a platform-specific DOM marker. Every supported
-  // site renders an episode list or season picker for series and nothing
-  // equivalent for films.
-  const indicator = SUPPORTED_SITES[site].selectors.seriesIndicator;
-  if (safeQuerySelector(indicator)) {
+  if (indicators.some((selector) => safeQuerySelector(selector))) {
     return "series";
   }
 
@@ -126,8 +213,51 @@ export function getOverlayAnchor(): Element | null {
   const site = detectSite();
   if (!site) return null;
 
-  const config = SUPPORTED_SITES[site];
-  return document.querySelector(config.selectors.overlayAnchor);
+  for (const selector of SUPPORTED_SITES[site].selectors.overlayAnchor) {
+    const element = safeQuerySelector(selector);
+    if (element) return element;
+  }
+
+  return null;
+}
+
+/**
+ * Wait for any of a site's title-page selectors to appear.
+ *
+ * Detail views render asynchronously, so a check that runs the instant the URL
+ * changes finds nothing. This resolves as soon as the view is up.
+ *
+ * @param timeout - Maximum time to wait in ms
+ * @returns Promise resolving to true if the detail view rendered
+ */
+export function waitForTitlePage(timeout: number = 5000): Promise<boolean> {
+  const site = detectSite();
+  if (!site) return Promise.resolve(false);
+
+  const selectors = SUPPORTED_SITES[site].selectors.titlePage;
+  const present = () => selectors.some((selector) => safeQuerySelector(selector));
+
+  return new Promise((resolve) => {
+    if (present()) {
+      resolve(true);
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      if (present()) {
+        observer.disconnect();
+        clearTimeout(timer);
+        resolve(true);
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    const timer = setTimeout(() => {
+      observer.disconnect();
+      resolve(false);
+    }, timeout);
+  });
 }
 
 /**
@@ -143,7 +273,7 @@ export function waitForElement(
 ): Promise<Element | null> {
   return new Promise((resolve) => {
     // Check if already present
-    const existing = document.querySelector(selector);
+    const existing = safeQuerySelector(selector);
     if (existing) {
       resolve(existing);
       return;
@@ -151,9 +281,10 @@ export function waitForElement(
 
     // Set up observer
     const observer = new MutationObserver((_, obs) => {
-      const element = document.querySelector(selector);
+      const element = safeQuerySelector(selector);
       if (element) {
         obs.disconnect();
+        clearTimeout(timer);
         resolve(element);
       }
     });
@@ -164,7 +295,7 @@ export function waitForElement(
     });
 
     // Timeout
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       observer.disconnect();
       resolve(null);
     }, timeout);

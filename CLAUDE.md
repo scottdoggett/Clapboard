@@ -9,6 +9,7 @@ npm run build           # Build extension to dist/ (esbuild + PostCSS/Tailwind)
 npm run build:watch     # Rebuild on file changes
 npm run lint            # TypeScript type-check (tsc --noEmit) + ESLint
 npm run verify:parsers  # Check OMDb response parsers against known payloads
+npm run verify:detection # Check the title-detection logic against known URLs and title strings
 npx convex dev          # Start Convex backend (separate terminal)
 ```
 
@@ -39,7 +40,19 @@ Content scripts and popup communicate with the background worker via `chrome.run
 
 ### Platform-Specific DOM Detection
 
-Each streaming site has unique CSS selectors configured in `src/shared/constants.ts` (`SUPPORTED_SITES`). The `src/shared/utils/dom.ts` module uses these to detect title pages, extract movie names, and find overlay anchor points. Adding a new streaming platform means adding a new entry to `SUPPORTED_SITES` and tuning selectors.
+Working out what the user is looking at is the most failure-prone part of the extension, so it runs in layers rather than off a single selector. `src/shared/constants.ts` (`SUPPORTED_SITES`) holds per-platform URL patterns and *lists* of selector candidates; `src/shared/utils/dom.ts` reads the page; `src/shared/utils/titleDetect.ts` holds the pure decisions and is exercised by `npm run verify:detection`.
+
+Order of operations in `detectCurrentTitle()`:
+
+1. **URL gate.** `urlPatterns.title` must match, or detection stops. This is what keeps the overlay off browse, search, and account pages — the heading selectors are broad on purpose, and Prime Video's fallback really is a bare `h1`, which is only safe because the gate runs first.
+2. **Live DOM.** Each `selectors.titleText` candidate in turn, most specific first. These follow client-side navigation, so they're trusted above everything else. An `<img>` match reads its `alt` (Disney+ and Netflix render title treatments as images).
+3. **Document metadata** — JSON-LD, then Open Graph, then `document.title`. Structured and stable across redesigns, but baked in at load: on a single-page app it describes whatever page was *served*. `dom.ts` records `location.href` at module load and only consults these while the URL still matches.
+
+Candidates are merged rather than raced: the first usable title wins, and fields it lacks (typically the year) are filled from later candidates.
+
+Content type comes from the URL where the platform encodes it (`/movies/` vs `/series/`), otherwise from a `seriesIndicator` element, otherwise stays `undefined` — a missing episode list may just mean it hasn't rendered.
+
+Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patterns, and selector candidate lists. Add its URL shapes to `scripts/verify-detection.ts` at the same time — that's the only check on the gate, since the live sites need an account and render client-side.
 
 ### Backend
 
@@ -100,4 +113,4 @@ Phase 1 (Ratings Overlay) and Phase 2 (Awards) are implemented end to end: title
 Known gaps in the current phases:
 - Letterboxd is in the `RatingSource` union and the UI but has no provider — OMDb doesn't carry it and there's no public API.
 - Awards come from OMDb's free-text summary, so they're counts ("4 Oscars") rather than categories ("Best Picture").
-- The platform DOM selectors in `SUPPORTED_SITES` are unverified against the live sites; Prime Video's `h1` selector in particular is broad enough to match non-title pages.
+- The platform DOM selectors in `SUPPORTED_SITES` are still unverified against the live sites. The URL gate and the metadata fallbacks mean a stale selector degrades rather than breaks — the overlay falls back to JSON-LD or the page title instead of showing the wrong thing — but the selector lists themselves are educated guesses until someone checks them with an account on each platform.

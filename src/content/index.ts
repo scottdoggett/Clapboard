@@ -14,8 +14,15 @@
 import { createRoot, Root } from "react-dom/client";
 import { createElement } from "react";
 import App from "./App";
-import { detectCurrentTitle, getOverlayAnchor, type TitleInfo } from "@shared/utils/dom";
-import { SUPPORTED_SITES, STORAGE_KEYS } from "@shared/constants";
+import {
+  detectCurrentTitle,
+  detectSite,
+  getOverlayAnchor,
+  isOnTitlePage,
+  waitForTitlePage,
+  type TitleInfo,
+} from "@shared/utils/dom";
+import { STORAGE_KEYS } from "@shared/constants";
 import { getSettings } from "@shared/utils/storage";
 
 /**
@@ -38,6 +45,12 @@ let currentTitleKey: string | null = null;
 
 // Debounce timer for URL change detection
 let urlCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Incremented on every title check so a slow one can tell it's been superseded
+let checkGeneration = 0;
+
+// How long to wait for a detail view to render after the URL says it should
+const TITLE_RENDER_TIMEOUT_MS = 5000;
 
 /**
  * Initialize the content script
@@ -73,21 +86,6 @@ async function init(): Promise<void> {
 
   // Initial check for title display
   await checkForTitle();
-}
-
-/**
- * Detect which streaming site we're on
- */
-function detectSite(): string | null {
-  const hostname = window.location.hostname;
-
-  for (const [siteKey, siteConfig] of Object.entries(SUPPORTED_SITES)) {
-    if (siteConfig.hostPatterns.some((pattern) => hostname.includes(pattern))) {
-      return siteKey;
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -136,8 +134,15 @@ function titleKey(titleInfo: TitleInfo): string {
 
 /**
  * Check if we're on a title detail page and should show the overlay
+ *
+ * Runs on every navigation and whenever the settings change, so it has to be
+ * cheap when the answer is "no title here" — which is why the URL check comes
+ * before anything that touches the DOM.
  */
 async function checkForTitle(): Promise<void> {
+  // A newer check superseding this one leaves this generation stale; used to
+  // discard the result of an await that finished after the user moved on
+  const generation = ++checkGeneration;
   const settings = await getSettings();
 
   if (!settings.enabled) {
@@ -145,14 +150,28 @@ async function checkForTitle(): Promise<void> {
     return;
   }
 
-  console.log("[Clapboard] Checking for title on page...");
-  const titleInfo = detectCurrentTitle();
+  if (!isOnTitlePage()) {
+    console.log("[Clapboard] Not a title page:", window.location.pathname);
+    unmountOverlay();
+    return;
+  }
+
+  let titleInfo = detectCurrentTitle();
+
+  // The URL says there's a title here but the detail view hasn't rendered yet,
+  // which is the normal case right after a client-side navigation
+  if (!titleInfo) {
+    console.log("[Clapboard] Title page detected, waiting for it to render...");
+    await waitForTitlePage(TITLE_RENDER_TIMEOUT_MS);
+    if (generation !== checkGeneration) return;
+    titleInfo = detectCurrentTitle();
+  }
 
   if (titleInfo) {
     console.log("[Clapboard] Detected title:", titleInfo.title, titleInfo);
     mountOverlay(titleInfo);
   } else {
-    console.log("[Clapboard] No title detected on this page");
+    console.log("[Clapboard] Title page, but no title could be read");
     unmountOverlay();
   }
 }

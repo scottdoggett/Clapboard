@@ -6,55 +6,190 @@
  */
 
 /**
+ * Shape of a single streaming site's configuration.
+ *
+ * Adding a platform means adding an entry to SUPPORTED_SITES that satisfies
+ * this — a host match, the URL shapes that carry a title, and DOM selectors
+ * to read the title out of the page.
+ */
+export interface SiteConfig {
+  readonly name: string;
+  /** Substrings matched against `location.hostname` */
+  readonly hostPatterns: readonly string[];
+  readonly urlPatterns: SiteUrlPatterns;
+  readonly selectors: SiteSelectors;
+}
+
+/**
+ * URL shapes that tell us what a page is showing.
+ *
+ * The `title` patterns are the gate that keeps the overlay off browse, search,
+ * and account pages. Without it a broad heading selector matches every page on
+ * the site and we send navigation labels to OMDb.
+ *
+ * Patterns are regular expression sources tested case-insensitively against
+ * `location.pathname`. Most platforms prefix the path with a locale segment
+ * (`/en-ca/...`), so the patterns allow for an optional one.
+ */
+export interface SiteUrlPatterns {
+  /** Paths that show a single title */
+  readonly title: readonly string[];
+  /** Paths that additionally identify the title as a film */
+  readonly movie: readonly string[];
+  /** Paths that additionally identify the title as a series */
+  readonly series: readonly string[];
+  /** Query params that open a title over another page (Netflix's jbv modal) */
+  readonly titleParams: readonly string[];
+}
+
+/**
+ * DOM selectors for a platform, each a list of candidates tried in order.
+ *
+ * Streaming sites ship layout changes constantly and run A/B tests, so a
+ * single selector per job is a guarantee of breakage. Order runs from the most
+ * specific (a stable test id) to the most generic (a bare heading), and the
+ * generic entries are only safe because the URL gate has already run.
+ */
+export interface SiteSelectors {
+  /** Confirms the detail view has rendered */
+  readonly titlePage: readonly string[];
+  /** Holds the title text */
+  readonly titleText: readonly string[];
+  /** Where the overlay gets appended */
+  readonly overlayAnchor: readonly string[];
+  /** Present only for series — an episode list or season picker */
+  readonly seriesIndicator: readonly string[];
+}
+
+/**
+ * Streaming platform names, used to strip branding off page titles.
+ *
+ * Order matters: longer names come first so "Amazon Prime Video" is matched
+ * before "Prime Video" leaves "Amazon" behind.
+ */
+export const PLATFORM_NAMES = [
+  "Amazon Prime Video",
+  "Prime Video",
+  "Disney Plus",
+  "Disney+",
+  "Netflix",
+  "Crave",
+] as const;
+
+/**
  * Supported streaming site configurations
  */
 export const SUPPORTED_SITES = {
   netflix: {
     name: "Netflix",
     hostPatterns: ["netflix.com"],
-    // CSS selectors for detecting title pages and positioning overlay
+    urlPatterns: {
+      // /title/81234567 is the detail page, /watch/81234567 the player
+      title: ["^(?:/[a-z]{2}(?:-[a-z]{2})?)?/(?:title|watch)/\\d+"],
+      movie: [],
+      series: [],
+      // Netflix opens a title in a modal over the browse grid and moves the
+      // id into ?jbv= rather than changing the path
+      titleParams: ["jbv"],
+    },
     selectors: {
-      // Selector for the element that indicates we're on a title detail page
-      titlePage: '[data-uia="title-info"]',
-      // Selector for extracting the movie/show title
-      titleText: '[data-uia="title-info"] h1, .title-title',
-      // Selector for the overlay anchor point
-      overlayAnchor: ".detail-modal, .watch-video",
-      // Presence of this element means the title is a series, not a film
-      seriesIndicator: '[data-uia="episode-list"], .episodeSelector',
+      titlePage: [
+        '[data-uia="title-info"]',
+        '[data-uia="previewModal--container"]',
+        ".title-info-metadata",
+        ".watch-video",
+      ],
+      titleText: [
+        '[data-uia="title-info-title"]',
+        '[data-uia="title-info"] h1',
+        '[data-uia="previewModal--section-header"] strong',
+        ".title-title",
+        ".video-title h4",
+      ],
+      overlayAnchor: [".detail-modal", '[data-uia="title-info"]', ".watch-video"],
+      seriesIndicator: ['[data-uia="episode-list"]', ".episodeSelector", ".season-list"],
     },
   },
   disneyPlus: {
     name: "Disney+",
     hostPatterns: ["disneyplus.com"],
+    urlPatterns: {
+      title: [
+        "^(?:/[a-z]{2}(?:-[a-z]{2})?)?/(?:movies|series|video|play)/",
+        // Newer entity routes carry a uuid instead of a content-type segment
+        "^(?:/[a-z]{2}(?:-[a-z]{2})?)?/browse/entity-",
+      ],
+      movie: ["^(?:/[a-z]{2}(?:-[a-z]{2})?)?/movies/"],
+      series: ["^(?:/[a-z]{2}(?:-[a-z]{2})?)?/series/"],
+      titleParams: [],
+    },
     selectors: {
-      titlePage: '[data-testid="details-page"]',
-      titleText: '[data-testid="details-title"]',
-      overlayAnchor: '[data-testid="details-page"]',
-      seriesIndicator: '[data-testid="episodes-tab"], [data-testid="season-select"]',
+      titlePage: [
+        '[data-testid="details-page"]',
+        '[data-testid="detail-page"]',
+        '[data-testid="hero-collection"]',
+      ],
+      titleText: [
+        '[data-testid="details-title"]',
+        '[data-testid="hero-title"]',
+        ".title-treatment img[alt]",
+        "h1",
+      ],
+      overlayAnchor: ['[data-testid="details-page"]', '[data-testid="detail-page"]'],
+      seriesIndicator: [
+        '[data-testid="episodes-tab"]',
+        '[data-testid="season-select"]',
+        '[data-testid="episode-list"]',
+      ],
     },
   },
   primeVideo: {
     name: "Prime Video",
     hostPatterns: ["primevideo.com", "amazon.com/gp/video"],
+    urlPatterns: {
+      // Both primevideo.com/detail/... and amazon.com/gp/video/detail/...
+      title: ["/detail/", "/gp/video/detail/"],
+      movie: [],
+      series: [],
+      titleParams: [],
+    },
     selectors: {
-      titlePage: "h1",
-      titleText: "h1",
-      overlayAnchor: "body",
-      seriesIndicator: '[data-automation-id="ep-title"], [data-testid="episode-list"]',
+      titlePage: [
+        '[data-automation-id="title"]',
+        "[data-testid='title-art']",
+        ".dv-node-dp-title",
+      ],
+      titleText: [
+        '[data-automation-id="title"]',
+        ".dv-node-dp-title",
+        "h1[data-automation-id]",
+        "h1",
+      ],
+      overlayAnchor: [".dv-dp-node-meta", "#dv-action-box", "body"],
+      seriesIndicator: [
+        '[data-automation-id="ep-title"]',
+        '[data-testid="episode-list"]',
+        '[data-automation-id="season-selector"]',
+      ],
     },
   },
   crave: {
     name: "Crave",
     hostPatterns: ["crave.ca"],
+    urlPatterns: {
+      title: ["^(?:/[a-z]{2})?/(?:movies|tv-shows)/"],
+      movie: ["^(?:/[a-z]{2})?/movies/"],
+      series: ["^(?:/[a-z]{2})?/tv-shows/"],
+      titleParams: [],
+    },
     selectors: {
-      titlePage: ".program-details",
-      titleText: ".program-title",
-      overlayAnchor: ".program-details",
-      seriesIndicator: ".season-selector, .episode-list",
+      titlePage: [".program-details", "[data-testid='content-details']", "main"],
+      titleText: [".program-title", "[data-testid='content-title']", "h1"],
+      overlayAnchor: [".program-details", "[data-testid='content-details']"],
+      seriesIndicator: [".season-selector", ".episode-list", "[data-testid='episodes']"],
     },
   },
-} as const;
+} as const satisfies Record<string, SiteConfig>;
 
 /**
  * Type for site keys

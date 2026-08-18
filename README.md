@@ -134,6 +134,9 @@ npm run lint
 
 # Check the OMDb response parsers against known payloads
 npm run verify:parsers
+
+# Check title detection against known URLs and page-title strings
+npm run verify:detection
 ```
 
 After making changes, go to `chrome://extensions/` and click the refresh icon on the Clapboard card to reload.
