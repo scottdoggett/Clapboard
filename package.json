@@ -12,9 +12,11 @@
     "build:watch": "tsx watch scripts/build.ts",
     "verify:parsers": "tsx scripts/verify-parsers.ts",
     "verify:detection": "tsx scripts/verify-detection.ts",
+    "verify:ai-scores": "tsx scripts/verify-ai-scores.ts",
     "lint": "tsc --noEmit && eslint ."
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "convex": "*",
     "next": "*",
     "react": "*",

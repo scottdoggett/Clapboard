@@ -35,6 +35,31 @@ export interface AiScores {
 }
 
 /**
+ * A review the AI scores were drawn from
+ */
+export interface AiScoreSource {
+  url: string;
+  publication?: string;
+}
+
+/**
+ * A completed AI scoring run for a title.
+ *
+ * The sources are part of the result, not decoration: the claim being made is
+ * "this is what reviewers said", which is only worth anything if the reader can
+ * go and check.
+ */
+export interface AiScoreResult {
+  scores: AiScores;
+  /** One or two sentences on the critical consensus */
+  summary?: string;
+  sources: AiScoreSource[];
+  /** Model that produced the scores */
+  model: string;
+  generatedAt: number;
+}
+
+/**
  * Movie rating from a single source
  */
 export interface Rating {
@@ -76,7 +101,6 @@ export interface Movie {
   runtime?: number; // in minutes
   director?: string;
   awards?: Award[];
-  aiScores?: AiScores;
 }
 
 /**

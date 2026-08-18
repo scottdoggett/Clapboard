@@ -9,6 +9,7 @@
  * - ratings: Aggregated ratings from various sources
  * - users: User accounts (Phase 4)
  * - reviews: Review data for AI processing (Phase 3)
+ * - aiScores: Category scores derived from published reviews (Phase 3)
  */
 
 import { defineSchema, defineTable } from "convex/server";
@@ -146,6 +147,54 @@ export default defineSchema({
 
     // Timestamps
     createdAt: v.number(),
+  }).index("by_movie", ["movieId"]),
+
+  /**
+   * AI scores table
+   *
+   * Phase 3. One row per movie holding the category scores derived from
+   * published reviews, plus the reviews they came from so a score can be
+   * traced back rather than taken on faith.
+   *
+   * Rows are also written when scoring *fails* (`status: "insufficient"`) —
+   * generating these costs an API call and a web search, so a title with too
+   * few reviews must not be retried on every page view.
+   */
+  aiScores: defineTable({
+    // Reference to the movie
+    movieId: v.id("movies"),
+
+    // Whether this run produced usable scores
+    status: v.union(v.literal("scored"), v.literal("insufficient")),
+
+    // Category scores on a 0-10 scale. Each is optional: reviews that never
+    // mention the soundtrack should leave it empty rather than guess.
+    scores: v.optional(
+      v.object({
+        cinematography: v.optional(v.number()),
+        plot: v.optional(v.number()),
+        writing: v.optional(v.number()),
+        characters: v.optional(v.number()),
+        soundtrack: v.optional(v.number()),
+        overall: v.optional(v.number()),
+      })
+    ),
+
+    // One or two sentences on the critical consensus
+    summary: v.optional(v.string()),
+
+    // The reviews the scores were drawn from
+    sources: v.array(
+      v.object({
+        url: v.string(),
+        publication: v.optional(v.string()),
+      })
+    ),
+
+    // Which model produced this, so a re-scoring pass can find stale rows
+    model: v.string(),
+
+    generatedAt: v.number(),
   }).index("by_movie", ["movieId"]),
 
   /**

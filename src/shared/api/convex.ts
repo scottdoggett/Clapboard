@@ -20,7 +20,7 @@
 
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
-import type { Movie, Rating, Review, MovieData } from "@shared/types/movie";
+import type { AiScoreResult, Movie, Rating, MovieData } from "@shared/types/movie";
 
 // Convex client instance, keyed by the URL it was created for
 let client: ConvexHttpClient | null = null;
@@ -44,10 +44,10 @@ const lookupRef = makeFunctionReference<
 >("omdb:lookup");
 
 const aiScoresRef = makeFunctionReference<
-  "query",
-  { movieId: string },
-  Review | null
->("reviews:getAiScores");
+  "action",
+  { movieId: string; title: string; year?: number; type?: "movie" | "series" },
+  AiScoreResult | null
+>("aiScores:generate");
 
 /**
  * Get or create the Convex client
@@ -104,19 +104,30 @@ export async function lookupMovie(
 }
 
 /**
- * Query AI-generated scores for a movie's reviews (Phase 3)
+ * Request AI-generated category scores for a title (Phase 3).
+ *
+ * The backend serves stored scores when it has them and generates them
+ * otherwise, which means this call can take tens of seconds on a cold title —
+ * it searches for reviews and reads them. Callers should treat it as a
+ * user-initiated action, not something to fire on page load.
  *
  * @param url - Convex deployment URL
  * @param movieId - Convex document ID for the movie
- * @returns Review with AI scores, or null if none have been generated
+ * @param title - Canonical title, as resolved by the ratings lookup
+ * @param year - Release year, when known
+ * @param type - Content type hint
+ * @returns The scores, or null when the title couldn't be scored
  */
-export async function queryAiScores(
+export async function requestAiScores(
   url: string,
-  movieId: string
-): Promise<Review | null> {
+  movieId: string,
+  title: string,
+  year?: number,
+  type?: "movie" | "series"
+): Promise<AiScoreResult | null> {
   const convex = getConvexClient(url);
 
-  return await convex.query(aiScoresRef, { movieId });
+  return await convex.action(aiScoresRef, { movieId, title, year, type });
 }
 
 /**

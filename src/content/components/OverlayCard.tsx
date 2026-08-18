@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from "react";
-import type { Movie, Rating } from "@shared/types/movie";
+import type { AiScoreResult, Movie, Rating } from "@shared/types/movie";
 import RatingBadge from "./RatingBadge";
 import AwardsBadge from "./AwardsBadge";
 import ScoreBreakdown from "./ScoreBreakdown";
@@ -16,11 +16,29 @@ import {
   getScoreTier,
 } from "@shared/utils/scoring";
 
+/**
+ * AI scoring state, threaded down from the hook that owns it.
+ *
+ * Null when the feature is switched off, which is what hides the section
+ * entirely rather than showing a control that can't do anything.
+ */
+export interface AiScoresState {
+  result: AiScoreResult | null;
+  isLoading: boolean;
+  /** A request came back with nothing — too few reviews to score the title */
+  isUnavailable: boolean;
+  error: Error | null;
+  /** Kick off a scoring request. Called the first time the section is opened. */
+  onRequest: () => void;
+}
+
 interface OverlayCardProps {
   movie: Movie;
   ratings: Rating[];
   /** Ratings averaged onto a 0-100 scale, or null when there are none */
   averageScore?: number | null;
+  /** AI score state, or null when the feature is disabled */
+  aiScores?: AiScoresState | null;
 }
 
 /**
@@ -30,9 +48,21 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
   movie,
   ratings,
   averageScore = null,
+  aiScores = null,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+
+  /**
+   * Opening the section is what pays for the scoring run, so the request is
+   * fired here rather than on mount — most titles a user passes never get
+   * expanded, and each run costs a web search and a model call.
+   */
+  const toggleAiSection = () => {
+    const next = !isExpanded;
+    setIsExpanded(next);
+    if (next) aiScores?.onRequest();
+  };
 
   // Minimized view — just show a small icon
   if (isMinimized) {
@@ -102,10 +132,10 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
       )}
 
       {/* Expandable AI Scores Section (Phase 3) */}
-      {movie.aiScores && (
+      {aiScores && (
         <>
           <button
-            onClick={() => setIsExpanded(!isExpanded)}
+            onClick={toggleAiSection}
             className="cb-w-full cb-px-4 cb-py-2 cb-text-sm cb-text-gray-400 hover:cb-text-white cb-border-t cb-border-surface-lighter cb-flex cb-items-center cb-justify-center cb-gap-1"
           >
             {isExpanded ? "Hide" : "Show"} AI Analysis
@@ -114,7 +144,7 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
 
           {isExpanded && (
             <div className="cb-px-4 cb-pb-4">
-              <ScoreBreakdown scores={movie.aiScores} />
+              <AiScoresSection state={aiScores} />
             </div>
           )}
         </>
@@ -126,6 +156,41 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
       </div>
     </div>
   );
+};
+
+/**
+ * The AI section's four states: working, failed, nothing to show, and scored.
+ *
+ * A scoring run takes tens of seconds on a cold title, so the waiting state
+ * has to say what it's waiting for — a spinner alone reads as broken at that
+ * duration.
+ */
+const AiScoresSection: React.FC<{ state: AiScoresState }> = ({ state }) => {
+  if (state.isLoading) {
+    return (
+      <p className="cb-text-gray-400 cb-text-xs cb-m-0 cb-py-2">
+        Reading reviews… this takes a moment the first time.
+      </p>
+    );
+  }
+
+  if (state.error) {
+    return (
+      <p className="cb-text-gray-400 cb-text-xs cb-m-0 cb-py-2">
+        Couldn&apos;t generate scores: {state.error.message}
+      </p>
+    );
+  }
+
+  if (state.isUnavailable || !state.result) {
+    return (
+      <p className="cb-text-gray-400 cb-text-xs cb-m-0 cb-py-2">
+        Not enough published reviews to score this one.
+      </p>
+    );
+  }
+
+  return <ScoreBreakdown result={state.result} />;
 };
 
 /**

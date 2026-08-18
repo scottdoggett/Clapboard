@@ -15,21 +15,23 @@ import type {
   MessageResponse,
   ExtensionStatus,
 } from "@shared/types/messages";
-import type { MovieData } from "@shared/types/movie";
+import type { AiScoreResult, MovieData } from "@shared/types/movie";
 import type { ClapboardSettings } from "@shared/utils/storage";
 import {
   getSettings,
   updateSettings,
   getCachedMovieData,
   setCachedMovieData,
+  getCachedAiScores,
+  setCachedAiScores,
   clearCache,
   getCacheSize,
   DEFAULT_SETTINGS,
 } from "@shared/utils/storage";
-import { lookupMovie, queryAiScores, closeClient } from "@shared/api/convex";
+import { lookupMovie, requestAiScores, closeClient } from "@shared/api/convex";
 import { calculateAverageScore } from "@shared/utils/scoring";
 import { buildLookupKey } from "@shared/utils/text";
-import { EXTENSION_INFO, STORAGE_KEYS } from "@shared/constants";
+import { EXTENSION_INFO, FEATURES, STORAGE_KEYS } from "@shared/constants";
 
 /**
  * Convex URL baked in at build time from the CONVEX_URL environment variable.
@@ -196,21 +198,52 @@ async function handleGetMovieData(payload: {
 }
 
 /**
- * Request AI-generated scores for a movie's reviews (Phase 3)
+ * Request AI-generated category scores for a title (Phase 3).
+ *
+ * Generating these costs a web search and a model call, so both this cache and
+ * the backend's record failures as well as successes — a title with too few
+ * reviews to score must not be retried every time the user opens the panel.
  */
 async function handleAiScoreRequest(payload: {
   movieId: string;
-}): Promise<MessageResponse> {
-  const settings = await getSettings();
-  const url = resolveConvexUrl(settings);
+  title: string;
+  year?: number;
+  type?: "movie" | "series";
+}): Promise<MessageResponse<AiScoreResult | null>> {
+  if (!FEATURES.AI_SCORES_ENABLED) {
+    return { success: true, data: null };
+  }
 
+  const settings = await getSettings();
+
+  if (!settings.enabled) {
+    return { success: true, data: null };
+  }
+
+  const cached = await getCachedAiScores(payload.movieId);
+  if (cached) {
+    console.log("[Clapboard] AI score cache hit for:", payload.title);
+    return { success: true, data: cached.result };
+  }
+
+  const url = resolveConvexUrl(settings);
   if (!url) {
     return { success: false, error: "No Convex deployment URL configured." };
   }
 
-  const review = await queryAiScores(url, payload.movieId);
+  console.log("[Clapboard] Requesting AI scores for:", payload.title);
 
-  return { success: true, data: review?.aiScores ?? null };
+  const result = await requestAiScores(
+    url,
+    payload.movieId,
+    payload.title,
+    payload.year,
+    payload.type
+  );
+
+  await setCachedAiScores(payload.movieId, result);
+
+  return { success: true, data: result };
 }
 
 /**

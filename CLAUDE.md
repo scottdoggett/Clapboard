@@ -10,6 +10,7 @@ npm run build:watch     # Rebuild on file changes
 npm run lint            # TypeScript type-check (tsc --noEmit) + ESLint
 npm run verify:parsers  # Check OMDb response parsers against known payloads
 npm run verify:detection # Check the title-detection logic against known URLs and title strings
+npm run verify:ai-scores # Check the AI score parser against model tool-call shapes
 npx convex dev          # Start Convex backend (separate terminal)
 ```
 
@@ -56,7 +57,7 @@ Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patt
 
 ### Backend
 
-**Convex** (`convex/`) provides the database with tables: `movies`, `ratings`, `reviews`, `awards`, `users`, `lookups`. Schema in `convex/schema.ts`. Ratings are stored per-source (IMDb, RT, Metacritic, Letterboxd) with their native scales.
+**Convex** (`convex/`) provides the database with tables: `movies`, `ratings`, `reviews`, `awards`, `aiScores`, `users`, `lookups`. Schema in `convex/schema.ts`. Ratings are stored per-source (IMDb, RT, Metacritic, Letterboxd) with their native scales.
 
 ### Data Flow
 
@@ -73,6 +74,24 @@ content script → background worker → Convex action (omdb:lookup) → OMDb
 - Both cache layers key on a normalized title (`buildLookupKey` in `src/shared/utils/text.ts`, mirrored by `lookupKey` in `convex/omdbParse.ts` — **keep these two in sync**, or the caches will disagree about what counts as the same title).
 - Negative results are cached too. Streaming sites show plenty of titles OMDb can't match, and without this each SPA navigation would re-query.
 - The extension addresses backend functions by string (`makeFunctionReference("omdb:lookup")`) rather than the generated `api` object, so renaming a Convex function is a runtime break, not a compile error.
+
+### AI Review Scoring (Phase 3)
+
+A second, slower path that lives entirely apart from the ratings flow:
+
+```
+overlay "Show AI Analysis" → background worker → Convex action (aiScores:generate) → Claude + web search
+                             chrome.storage       aiScores table
+                             cache (7d)           cache (30d, 7d for failures)
+```
+
+The roadmap called for scraping reviews and then analyzing them. It does both in one call instead: Claude's server-side `web_search` tool finds and reads the reviews, and a `strict: true` tool call (`submit_scores`) returns the category scores plus the URLs it drew on. That avoids a scraper per publication and keeps the sources attached to the scores.
+
+- `convex/aiScores.ts` is a `"use node"` action — Convex Node files can only export actions, so the database functions live in `convex/aiScoresDb.ts`. `convex/aiScoresParse.ts` holds the prompt, the tool schema, and the validation, free of Convex and SDK imports so `npm run verify:ai-scores` can exercise them.
+- The key lives in the deployment (`npx convex env set ANTHROPIC_API_KEY <key>`), like the OMDb one.
+- **Cost is the design constraint.** A run means a web search and an Opus call, so: the overlay requests scores only when the user opens the AI section (never on page load), and *failures are cached too* — a title with too few reviews must not re-run on every view.
+- A category the reviews didn't discuss comes back missing, not guessed. The parser drops non-numbers, clamps to 0-10, and rejects a submission that has an overall score but fewer than two categories behind it. Sources must be `http(s)` URLs.
+- The whole feature is gated on `FEATURES.AI_SCORES_ENABLED`, which is **off**. With it off the background worker short-circuits the message and the overlay hides the section.
 
 ### Build Pipeline (`scripts/build.ts`)
 
@@ -108,9 +127,13 @@ Defined in both `tsconfig.json` and the esbuild alias plugin:
 
 ## Current Phase
 
-Phase 1 (Ratings Overlay) and Phase 2 (Awards) are implemented end to end: title detection → background worker → Convex → OMDb → overlay. Phase 3 (AI review scoring) and Phase 4 (user accounts/Clerk auth) are stubbed but not implemented.
+Phase 1 (Ratings Overlay) and Phase 2 (Awards) are implemented end to end: title detection → background worker → Convex → OMDb → overlay.
+
+Phase 3 (AI review scoring) is implemented but **unproven** — it has never run against the live API. The pure layers are verified (`npm run verify:ai-scores`) and the SDK call type-checks, but the round trip needs a deployment, an `ANTHROPIC_API_KEY`, and `FEATURES.AI_SCORES_ENABLED` flipped on. Phase 4 (user accounts/Clerk auth) is still stubbed.
 
 Known gaps in the current phases:
 - Letterboxd is in the `RatingSource` union and the UI but has no provider — OMDb doesn't carry it and there's no public API.
 - Awards come from OMDb's free-text summary, so they're counts ("4 Oscars") rather than categories ("Best Picture").
+- AI scoring has no per-title cost ceiling and no rate limit of its own. The caches bound how often a run happens for a given title, but nothing bounds how many distinct titles one user can trigger.
+- `convex/reviews.ts` still holds the original per-review scoring stubs. Nothing calls them now — the web-search path replaced them — but `aggregateScores` in `aiScoresParse.ts` is the averaging half of that design if per-review scoring ever comes back.
 - The platform DOM selectors in `SUPPORTED_SITES` are still unverified against the live sites. The URL gate and the metadata fallbacks mean a stale selector degrades rather than breaks — the overlay falls back to JSON-LD or the page title instead of showing the wrong thing — but the selector lists themselves are educated guesses until someone checks them with an account on each platform.

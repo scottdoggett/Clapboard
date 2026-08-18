@@ -30,6 +30,7 @@ Clapboard overlays a lightweight card on supported streaming sites that shows:
 | Bundler | esbuild (`scripts/build.ts`) |
 | Backend | Convex |
 | Ratings source | OMDb API (fetched server-side, cached in Convex) |
+| Review scoring | Claude (Opus 5) with server-side web search, via Convex |
 | Styling | Tailwind CSS 3 |
 | Package Manager | npm |
 
@@ -77,6 +78,8 @@ clapboard/
 - **npm** >= 9
 - A [Convex](https://www.convex.dev/) account (free tier works)
 - A free [OMDb API key](https://www.omdbapi.com/apikey.aspx)
+- Optionally an [Anthropic API key](https://console.anthropic.com/), for the
+  Phase 3 AI scoring feature (off by default)
 - Chrome or any Chromium-based browser
 
 ### Installation
@@ -96,6 +99,9 @@ npx convex dev
 # Give the backend its OMDb key. This lives in Convex, not in the extension,
 # so the key never ships to users.
 npx convex env set OMDB_API_KEY <your_omdb_key>
+
+# Optional — only needed for Phase 3 AI scoring, which is off by default
+npx convex env set ANTHROPIC_API_KEY <your_anthropic_key>
 
 # Point the extension at your deployment
 cp .env.example .env
@@ -137,6 +143,9 @@ npm run verify:parsers
 
 # Check title detection against known URLs and page-title strings
 npm run verify:detection
+
+# Check the AI score parser against model tool-call shapes
+npm run verify:ai-scores
 ```
 
 After making changes, go to `chrome://extensions/` and click the refresh icon on the Clapboard card to reload.
@@ -173,16 +182,24 @@ Each platform requires custom DOM selectors to detect which title the user is vi
 - ⬜ Highlight award-winning content as users browse
 
 ### Phase 3 — AI-Powered Review Scoring
-- Scrape written reviews from critic and audience sources
-- Use AI to analyze reviews and generate category scores:
+- ✅ Find and read written reviews from critic and audience sources — Claude's
+  web search does this server-side, so there's no scraper to maintain
+- ✅ Generate category scores from what reviewers actually wrote:
   - 🎥 **Cinematography**
   - 📖 **Plot**
   - ✍️ **Writing**
   - 🎭 **Characters**
   - 🎵 **Soundtrack**
   - ⭐ **Overall**
-- Store processed scores in Convex for fast retrieval
-- Display a visual score breakdown in the overlay
+- ✅ Store processed scores in Convex for fast retrieval, and link the reviews
+  they came from
+- ✅ Display a visual score breakdown in the overlay, on demand
+- ⬜ Never run against the live API — needs a key and the feature flag on
+
+Scoring is **off by default** (`FEATURES.AI_SCORES_ENABLED` in
+`src/shared/constants.ts`). Each run costs a web search and a model call, so
+the overlay asks for scores only when you open the AI section, and both the
+successes and the failures are cached.
 
 ### Phase 4 — Personalization & Social
 - User accounts and authentication

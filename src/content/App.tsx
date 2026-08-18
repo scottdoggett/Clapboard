@@ -5,9 +5,11 @@
  * Orchestrates the display of ratings, awards, and AI scores.
  */
 
-import React from "react";
+import React, { useMemo } from "react";
 import { useMovieData } from "./hooks/useMovieData";
+import { useAiScores } from "./hooks/useAiScores";
 import OverlayCard from "./components/OverlayCard";
+import { FEATURES } from "@shared/constants";
 
 interface AppProps {
   titleInfo: {
@@ -22,6 +24,23 @@ interface AppProps {
  */
 const App: React.FC<AppProps> = ({ titleInfo }) => {
   const { movie, ratings, averageScore, isLoading, error } = useMovieData(titleInfo);
+
+  // Scoring searches for reviews by name, so it uses the title the ratings
+  // lookup resolved rather than the one the streaming site rendered
+  const scoringTarget = useMemo(
+    () =>
+      movie
+        ? {
+            movieId: movie.id,
+            title: movie.title,
+            year: movie.year,
+            type: titleInfo.type,
+          }
+        : null,
+    [movie, titleInfo.type]
+  );
+
+  const aiScores = useAiScores(scoringTarget);
 
   // Don't render anything while loading initial data
   if (isLoading && !movie) {
@@ -69,7 +88,22 @@ const App: React.FC<AppProps> = ({ titleInfo }) => {
 
   return (
     <div className="cb-fixed cb-bottom-4 cb-right-4 cb-z-[999999]">
-      <OverlayCard movie={movie} ratings={ratings} averageScore={averageScore} />
+      <OverlayCard
+        movie={movie}
+        ratings={ratings}
+        averageScore={averageScore}
+        aiScores={
+          FEATURES.AI_SCORES_ENABLED
+            ? {
+                result: aiScores.scores,
+                isLoading: aiScores.isLoading,
+                isUnavailable: aiScores.isUnavailable,
+                error: aiScores.error,
+                onRequest: aiScores.request,
+              }
+            : null
+        }
+      />
     </div>
   );
 };

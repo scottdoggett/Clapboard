@@ -8,7 +8,7 @@
  * Uses discriminated unions for type-safe message handling.
  */
 
-import type { AiScores, MovieData } from "./movie";
+import type { AiScoreResult, MovieData } from "./movie";
 import type { ClapboardSettings } from "@shared/utils/storage";
 
 /**
@@ -40,12 +40,23 @@ export interface GetMovieDataMessage {
 }
 
 /**
- * Request AI-generated scores (Phase 3)
+ * Request AI-generated category scores for a title (Phase 3).
+ *
+ * Separate from GET_MOVIE_DATA because generating scores means a web search
+ * and a model call — seconds, and real money. The overlay asks for these only
+ * when the user opens the AI section, so browsing past a title costs nothing.
+ *
+ * The title travels with the request even though the movie is already
+ * resolved: scoring searches for reviews by name, and OMDb's canonical title
+ * finds them where the streaming site's rendering of it might not.
  */
 export interface AiScoreRequestMessage {
   type: "AI_SCORE_REQUEST";
   payload: {
     movieId: string;
+    title: string;
+    year?: number;
+    type?: "movie" | "series";
   };
 }
 
@@ -147,7 +158,7 @@ export type MessageResponse<T = unknown> =
  */
 export interface MessageResponseMap {
   GET_MOVIE_DATA: MovieData | null;
-  AI_SCORE_REQUEST: AiScores | null;
+  AI_SCORE_REQUEST: AiScoreResult | null;
   GET_STATUS: ExtensionStatus;
   SET_ENABLED: ClapboardSettings;
   UPDATE_SETTINGS: ClapboardSettings;

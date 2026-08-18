@@ -7,7 +7,7 @@
  */
 
 import { STORAGE_KEYS, CACHE_CONFIG } from "@shared/constants";
-import type { MovieData } from "@shared/types/movie";
+import type { AiScoreResult, MovieData } from "@shared/types/movie";
 
 /**
  * User-configurable extension settings
@@ -122,10 +122,75 @@ export async function setCachedMovieData(
 }
 
 /**
- * Drop every cached lookup (used by the popup's "clear cache" action)
+ * A cached AI scoring result. `null` records "we asked and it couldn't be
+ * scored", which matters more here than for lookups — a scoring run is the
+ * most expensive thing the extension can trigger.
+ */
+interface AiScoreCacheEntry {
+  result: AiScoreResult | null;
+  fetchedAt: number;
+}
+
+/**
+ * Read cached AI scores for a movie.
+ *
+ * @param movieId - Convex document ID for the movie
+ * @returns The cached entry, or undefined if absent or stale
+ */
+export async function getCachedAiScores(
+  movieId: string
+): Promise<AiScoreCacheEntry | undefined> {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.AI_SCORES);
+  const cache = (stored[STORAGE_KEYS.AI_SCORES] ?? {}) as Record<
+    string,
+    AiScoreCacheEntry
+  >;
+
+  const entry = cache[movieId];
+  if (!entry) return undefined;
+
+  if (Date.now() - entry.fetchedAt > CACHE_CONFIG.AI_SCORES_TTL_MS) {
+    return undefined;
+  }
+
+  return entry;
+}
+
+/**
+ * Cache an AI scoring result, including a failure to score.
+ *
+ * @param movieId - Convex document ID for the movie
+ * @param result - The scores, or null when the title couldn't be scored
+ */
+export async function setCachedAiScores(
+  movieId: string,
+  result: AiScoreResult | null
+): Promise<void> {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.AI_SCORES);
+  const cache = (stored[STORAGE_KEYS.AI_SCORES] ?? {}) as Record<
+    string,
+    AiScoreCacheEntry
+  >;
+
+  cache[movieId] = { result, fetchedAt: Date.now() };
+
+  const keys = Object.keys(cache);
+  if (keys.length > CACHE_CONFIG.MAX_ENTRIES) {
+    const sorted = keys.sort((a, b) => cache[a].fetchedAt - cache[b].fetchedAt);
+    for (const stale of sorted.slice(0, keys.length - CACHE_CONFIG.MAX_ENTRIES)) {
+      delete cache[stale];
+    }
+  }
+
+  await chrome.storage.local.set({ [STORAGE_KEYS.AI_SCORES]: cache });
+}
+
+/**
+ * Drop every cached lookup and scoring result (used by the popup's "clear
+ * cache" action, and whenever the deployment URL changes)
  */
 export async function clearCache(): Promise<void> {
-  await chrome.storage.local.remove(STORAGE_KEYS.CACHE);
+  await chrome.storage.local.remove([STORAGE_KEYS.CACHE, STORAGE_KEYS.AI_SCORES]);
 }
 
 /**

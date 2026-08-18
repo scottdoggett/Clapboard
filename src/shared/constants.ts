@@ -249,6 +249,7 @@ export const STORAGE_KEYS = {
   ENABLED: "clapboard_enabled",
   SETTINGS: "clapboard_settings",
   CACHE: "clapboard_cache",
+  AI_SCORES: "clapboard_ai_scores",
   USER: "clapboard_user",
 } as const;
 
@@ -261,6 +262,11 @@ export const CACHE_CONFIG = {
 
   // How long to cache ratings (6 hours)
   RATINGS_TTL_MS: 6 * 60 * 60 * 1000,
+
+  // How long to cache AI scores locally. Long, because they're expensive to
+  // generate and the reviews behind them barely change after release — the
+  // backend holds them for 30 days for the same reason.
+  AI_SCORES_TTL_MS: 7 * 24 * 60 * 60 * 1000,
 
   // Maximum cache entries before cleanup
   MAX_ENTRIES: 500,
