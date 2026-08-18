@@ -27,9 +27,10 @@ Clapboard overlays a lightweight card on supported streaming sites that shows:
 | Extension Standard | Chrome Manifest V3 |
 | Language | TypeScript (strict) |
 | Frontend | React 18+ |
-| Bundler | Turbopack (via Next.js as build tool only) |
+| Bundler | esbuild (`scripts/build.ts`) |
 | Backend | Convex |
-| Styling | Tailwind CSS |
+| Ratings source | OMDb API (fetched server-side, cached in Convex) |
+| Styling | Tailwind CSS 3 |
 | Package Manager | npm |
 
 ---
@@ -75,6 +76,7 @@ clapboard/
 - **Node.js** >= 18
 - **npm** >= 9
 - A [Convex](https://www.convex.dev/) account (free tier works)
+- A free [OMDb API key](https://www.omdbapi.com/apikey.aspx)
 - Chrome or any Chromium-based browser
 
 ### Installation
@@ -87,16 +89,28 @@ cd clapboard
 # Install dependencies
 npm install
 
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your Convex deployment URL and any API keys
-
-# Initialize Convex
+# Initialize Convex — this provisions a deployment, generates convex/_generated/,
+# and prints your deployment URL
 npx convex dev
+
+# Give the backend its OMDb key. This lives in Convex, not in the extension,
+# so the key never ships to users.
+npx convex env set OMDB_API_KEY <your_omdb_key>
+
+# Point the extension at your deployment
+cp .env.example .env
+# Edit .env and set CONVEX_URL to the URL that `npx convex dev` printed
 
 # Build the extension
 npm run build
 ```
+
+> **Note:** `npx convex dev` must run at least once before `npm run lint` will
+> pass — the Convex functions import from `convex/_generated/`, which only
+> exists after a deployment has been provisioned.
+
+If you'd rather not rebuild to change deployments, leave `CONVEX_URL` unset and
+enter the URL in the extension popup under **Settings** instead.
 
 ### Load into Chrome
 
@@ -109,11 +123,17 @@ npm run build
 ### Development
 
 ```bash
-# Start the dev server with hot reload
-npm run dev
+# Rebuild the extension on file changes
+npm run build:watch
 
 # Convex backend (in a separate terminal)
 npx convex dev
+
+# Type-check and lint
+npm run lint
+
+# Check the OMDb response parsers against known payloads
+npm run verify:parsers
 ```
 
 After making changes, go to `chrome://extensions/` and click the refresh icon on the Clapboard card to reload.
@@ -136,15 +156,18 @@ Each platform requires custom DOM selectors to detect which title the user is vi
 ## Roadmap
 
 ### Phase 1 — Ratings Overlay *(current)*
-- Detect the active title on supported streaming sites
-- Fetch and display ratings from IMDb, Rotten Tomatoes, Metacritic, and Letterboxd
-- Normalize scores to a common scale for easy comparison
-- Cache results via Convex to minimize API calls
+- ✅ Detect the active title on supported streaming sites
+- ✅ Fetch and display ratings from IMDb, Rotten Tomatoes, and Metacritic
+- ✅ Normalize scores to a common scale for easy comparison
+- ✅ Cache results in Convex and in the extension to minimize API calls
+- ⬜ Letterboxd ratings — no public API, needs a separate provider
 
 ### Phase 2 — Awards & Recognition
-- Surface Oscar, Golden Globe, BAFTA, and other major award data
-- Show wins vs. nominations at a glance
-- Highlight award-winning content as users browse
+- ✅ Surface Oscar, Golden Globe, BAFTA, and other major award data
+- ✅ Show wins vs. nominations at a glance
+- ⬜ Per-category awards ("Best Picture") — OMDb only reports counts, so this
+  needs a richer awards source
+- ⬜ Highlight award-winning content as users browse
 
 ### Phase 3 — AI-Powered Review Scoring
 - Scrape written reviews from critic and audience sources

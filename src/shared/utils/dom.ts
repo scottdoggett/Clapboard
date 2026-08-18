@@ -93,11 +93,7 @@ function parseTitle(rawTitle: string): { title: string; year?: number } {
  * @returns Content type or undefined if unknown
  */
 function detectContentType(site: SupportedSite): "movie" | "series" | undefined {
-  // TODO: Implement platform-specific detection logic
-  // Each platform has different indicators for movies vs series
-  // (e.g., presence of episode list, "Season" text, URL patterns)
-
-  // Placeholder: try to detect from URL
+  // The URL is the strongest signal when the platform puts the type in it
   const url = window.location.href.toLowerCase();
 
   if (url.includes("/movie/") || url.includes("/film/")) {
@@ -108,6 +104,16 @@ function detectContentType(site: SupportedSite): "movie" | "series" | undefined 
     return "series";
   }
 
+  // Otherwise fall back to a platform-specific DOM marker. Every supported
+  // site renders an episode list or season picker for series and nothing
+  // equivalent for films.
+  const indicator = SUPPORTED_SITES[site].selectors.seriesIndicator;
+  if (safeQuerySelector(indicator)) {
+    return "series";
+  }
+
+  // No marker isn't proof it's a film — the episode list may not have
+  // rendered yet — so stay undecided and let the backend match on title alone.
   return undefined;
 }
 

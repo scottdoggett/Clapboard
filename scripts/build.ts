@@ -9,11 +9,40 @@ import * as esbuild from "esbuild";
 import * as fs from "fs";
 import * as path from "path";
 import postcss from "postcss";
-import tailwindcssPostcss from "@tailwindcss/postcss";
+import tailwindcss from "tailwindcss";
 import autoprefixer from "autoprefixer";
 
 const BUILD_DIR = "dist";
 const SRC_DIR = "src";
+
+// The compiled overlay stylesheet, populated by processCSS() before the
+// content script is bundled so it can be inlined into the shadow root
+let compiledCss = "";
+
+/**
+ * Load .env into process.env without pulling in a dependency.
+ *
+ * Only fills in variables that aren't already set, so a value passed on the
+ * command line still wins.
+ */
+function loadEnv(): void {
+  if (!fs.existsSync(".env")) return;
+
+  const contents = fs.readFileSync(".env", "utf-8");
+
+  for (const line of contents.split("\n")) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
+    if (!match) continue;
+
+    const key = match[1];
+    // Strip surrounding quotes if present
+    const value = match[2].replace(/^["']|["']$/g, "");
+
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
 
 // Resolve path with extension (.ts, .tsx, or /index.ts)
 function resolveWithExtension(basePath: string): string {
@@ -106,6 +135,9 @@ async function bundleContent(): Promise<void> {
     define: {
       "process.env.CONVEX_URL": JSON.stringify(process.env.CONVEX_URL || ""),
       "process.env.NODE_ENV": JSON.stringify("production"),
+      // The overlay renders inside a shadow root, which page-level styles
+      // can't reach — the content script injects this copy instead.
+      __CLAPBOARD_CSS__: JSON.stringify(compiledCss),
     },
     jsx: "automatic",
   });
@@ -134,10 +166,13 @@ async function processCSS(): Promise<void> {
 
   const cssInput = fs.readFileSync("src/content/styles/overlay.css", "utf-8");
 
-  const result = await postcss([tailwindcssPostcss, autoprefixer]).process(cssInput, {
+  const result = await postcss([tailwindcss, autoprefixer]).process(cssInput, {
     from: "src/content/styles/overlay.css",
     to: path.join(BUILD_DIR, "content", "styles", "overlay.css"),
   });
+
+  // Hold onto the output so bundleContent() can inline it into the shadow root
+  compiledCss = result.css;
 
   // Write content script CSS
   fs.mkdirSync(path.join(BUILD_DIR, "content", "styles"), { recursive: true });
@@ -147,6 +182,7 @@ async function processCSS(): Promise<void> {
   );
 
   // Also write to popup directory for popup styles
+  fs.mkdirSync(path.join(BUILD_DIR, "popup"), { recursive: true });
   fs.writeFileSync(path.join(BUILD_DIR, "popup", "styles.css"), result.css);
 }
 
@@ -183,12 +219,24 @@ async function build(): Promise<void> {
   const startTime = Date.now();
 
   try {
+    loadEnv();
+
+    if (!process.env.CONVEX_URL) {
+      console.warn(
+        "⚠️  CONVEX_URL is not set — the extension will build, but lookups will fail until a deployment URL is entered in the popup.\n"
+      );
+    }
+
     await clean();
+
+    // CSS is processed first: the content script bundle inlines the compiled
+    // stylesheet, so it has to exist before bundling.
+    await processCSS();
+
     console.log("📦 Bundling scripts...");
     await bundleBackground();
     await bundleContent();
     await bundlePopup();
-    await processCSS();
     await copyStaticAssets();
 
     const elapsed = Date.now() - startTime;

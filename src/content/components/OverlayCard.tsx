@@ -10,16 +10,27 @@ import type { Movie, Rating } from "@shared/types/movie";
 import RatingBadge from "./RatingBadge";
 import AwardsBadge from "./AwardsBadge";
 import ScoreBreakdown from "./ScoreBreakdown";
+import {
+  sortRatingsByPriority,
+  getScoreColorClass,
+  getScoreTier,
+} from "@shared/utils/scoring";
 
 interface OverlayCardProps {
   movie: Movie;
   ratings: Rating[];
+  /** Ratings averaged onto a 0-100 scale, or null when there are none */
+  averageScore?: number | null;
 }
 
 /**
  * Main overlay card component
  */
-const OverlayCard: React.FC<OverlayCardProps> = ({ movie, ratings }) => {
+const OverlayCard: React.FC<OverlayCardProps> = ({
+  movie,
+  ratings,
+  averageScore = null,
+}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -28,7 +39,7 @@ const OverlayCard: React.FC<OverlayCardProps> = ({ movie, ratings }) => {
     return (
       <button
         onClick={() => setIsMinimized(false)}
-        className="cb-bg-surface cb-rounded-full cb-p-3 cb-shadow-overlay cb-hover:bg-surface-light cb-transition-colors"
+        className="cb-bg-surface cb-rounded-full cb-p-3 cb-shadow-overlay hover:cb-bg-surface-light cb-transition-colors"
         aria-label="Expand Clapboard overlay"
       >
         {/* TODO: Replace with actual Clapboard icon */}
@@ -45,16 +56,21 @@ const OverlayCard: React.FC<OverlayCardProps> = ({ movie, ratings }) => {
           <h2 className="cb-text-white cb-font-semibold cb-text-base cb-truncate">
             {movie.title}
           </h2>
-          {movie.year && (
-            <span className="cb-text-gray-400 cb-text-sm">{movie.year}</span>
-          )}
+          <div className="cb-flex cb-items-center cb-gap-2 cb-text-sm">
+            {movie.year && <span className="cb-text-gray-400">{movie.year}</span>}
+            {averageScore !== null && (
+              <span className={getScoreColorClass(averageScore)}>
+                {averageScore} · {getScoreTier(averageScore)}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Controls */}
         <div className="cb-flex cb-items-center cb-gap-1 cb-ml-2">
           <button
             onClick={() => setIsMinimized(true)}
-            className="cb-text-gray-400 cb-hover:text-white cb-p-1"
+            className="cb-text-gray-400 hover:cb-text-white cb-p-1"
             aria-label="Minimize"
           >
             <MinimizeIcon />
@@ -65,7 +81,7 @@ const OverlayCard: React.FC<OverlayCardProps> = ({ movie, ratings }) => {
       {/* Ratings Section */}
       <div className="cb-p-4">
         <div className="cb-grid cb-grid-cols-2 cb-gap-2">
-          {ratings.map((rating) => (
+          {sortRatingsByPriority(ratings).map((rating) => (
             <RatingBadge key={rating.source} rating={rating} />
           ))}
         </div>
@@ -90,7 +106,7 @@ const OverlayCard: React.FC<OverlayCardProps> = ({ movie, ratings }) => {
         <>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="cb-w-full cb-px-4 cb-py-2 cb-text-sm cb-text-gray-400 cb-hover:text-white cb-border-t cb-border-surface-lighter cb-flex cb-items-center cb-justify-center cb-gap-1"
+            className="cb-w-full cb-px-4 cb-py-2 cb-text-sm cb-text-gray-400 hover:cb-text-white cb-border-t cb-border-surface-lighter cb-flex cb-items-center cb-justify-center cb-gap-1"
           >
             {isExpanded ? "Hide" : "Show"} AI Analysis
             <ChevronIcon direction={isExpanded ? "up" : "down"} />

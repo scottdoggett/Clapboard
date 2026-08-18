@@ -8,37 +8,34 @@
  * Uses discriminated unions for type-safe message handling.
  */
 
-import type { Movie, Rating, AiScores } from "./movie";
+import type { AiScores, MovieData } from "./movie";
+import type { ClapboardSettings } from "@shared/utils/storage";
 
 /**
  * Message types enum for better IDE support
  */
 export enum MessageType {
   GET_MOVIE_DATA = "GET_MOVIE_DATA",
-  FETCH_RATINGS = "FETCH_RATINGS",
   AI_SCORE_REQUEST = "AI_SCORE_REQUEST",
   GET_STATUS = "GET_STATUS",
   SET_ENABLED = "SET_ENABLED",
+  UPDATE_SETTINGS = "UPDATE_SETTINGS",
+  CLEAR_CACHE = "CLEAR_CACHE",
 }
 
 /**
- * Request to get movie data by title
+ * Request movie metadata, ratings, and awards for a title.
+ *
+ * This returns everything the overlay needs in one round trip — the backend
+ * resolves the title and its ratings together, so splitting it into a second
+ * ratings request would only add latency.
  */
 export interface GetMovieDataMessage {
   type: "GET_MOVIE_DATA";
   payload: {
     title: string;
     year?: number;
-  };
-}
-
-/**
- * Request to fetch ratings for a movie
- */
-export interface FetchRatingsMessage {
-  type: "FETCH_RATINGS";
-  payload: {
-    movieId: string;
+    type?: "movie" | "series";
   };
 }
 
@@ -71,14 +68,47 @@ export interface SetEnabledMessage {
 }
 
 /**
+ * Update one or more settings
+ */
+export interface UpdateSettingsMessage {
+  type: "UPDATE_SETTINGS";
+  payload: Partial<ClapboardSettings>;
+}
+
+/**
+ * Drop every cached lookup
+ */
+export interface ClearCacheMessage {
+  type: "CLEAR_CACHE";
+  payload?: undefined;
+}
+
+/**
  * Union of all message types
  */
 export type Message =
   | GetMovieDataMessage
-  | FetchRatingsMessage
   | AiScoreRequestMessage
   | GetStatusMessage
-  | SetEnabledMessage;
+  | SetEnabledMessage
+  | UpdateSettingsMessage
+  | ClearCacheMessage;
+
+/**
+ * Extension status reported to the popup
+ */
+export interface ExtensionStatus {
+  /** Whether the overlay is switched on */
+  enabled: boolean;
+  /** Whether a Convex deployment URL is configured */
+  configured: boolean;
+  /** The deployment URL in use (empty when unconfigured) */
+  convexUrl: string;
+  /** Number of lookups currently cached locally */
+  cacheSize: number;
+  /** Extension version */
+  version: string;
+}
 
 /**
  * Base response structure
@@ -116,16 +146,12 @@ export type MessageResponse<T = unknown> =
  * Response type mapping for each message type
  */
 export interface MessageResponseMap {
-  GET_MOVIE_DATA: Movie | null;
-  FETCH_RATINGS: Rating[];
+  GET_MOVIE_DATA: MovieData | null;
   AI_SCORE_REQUEST: AiScores | null;
-  GET_STATUS: {
-    enabled: boolean;
-    connected: boolean;
-  };
-  SET_ENABLED: {
-    enabled: boolean;
-  };
+  GET_STATUS: ExtensionStatus;
+  SET_ENABLED: ClapboardSettings;
+  UPDATE_SETTINGS: ClapboardSettings;
+  CLEAR_CACHE: { cleared: true };
 }
 
 /**

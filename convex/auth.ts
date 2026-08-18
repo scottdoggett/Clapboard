@@ -15,10 +15,10 @@ import { QueryCtx, MutationCtx } from "./_generated/server";
 /**
  * Get the currently authenticated user from the context
  *
- * @param ctx - Convex query or mutation context
+ * @param _ctx - Convex query or mutation context (unused until Clerk is wired up)
  * @returns User document or null if not authenticated
  */
-export async function getCurrentUser(ctx: QueryCtx | MutationCtx) {
+export async function getCurrentUser(_ctx: QueryCtx | MutationCtx) {
   // TODO: Implement Clerk authentication
   // const identity = await ctx.auth.getUserIdentity();
   // if (!identity) return null;

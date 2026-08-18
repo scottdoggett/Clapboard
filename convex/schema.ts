@@ -140,7 +140,31 @@ export default defineSchema({
     year: v.number(),
     isWin: v.boolean(), // true = won, false = nominated
 
+    // How many of this award (OMDb reports counts, not individual categories —
+    // e.g. "Won 4 Oscars" becomes one record with count: 4)
+    count: v.optional(v.number()),
+
     // Timestamps
     createdAt: v.number(),
   }).index("by_movie", ["movieId"]),
+
+  /**
+   * Lookups table
+   *
+   * Caches title -> movie resolutions, including negative results.
+   * Streaming sites display titles that don't always match the canonical
+   * title returned by OMDb, so we key the cache on the query we were given
+   * rather than on the resolved title. A row with no movieId means "we asked
+   * and there was no match" — this stops repeat misses from hammering OMDb.
+   */
+  lookups: defineTable({
+    // Normalized "title|year|type" query key
+    key: v.string(),
+
+    // Resolved movie, or undefined when the lookup found nothing
+    movieId: v.optional(v.id("movies")),
+
+    // When this resolution was performed
+    fetchedAt: v.number(),
+  }).index("by_key", ["key"]),
 });

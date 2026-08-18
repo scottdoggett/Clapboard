@@ -14,13 +14,27 @@
 import { createRoot, Root } from "react-dom/client";
 import { createElement } from "react";
 import App from "./App";
-import { detectCurrentTitle, getOverlayAnchor } from "@shared/utils/dom";
-import { SUPPORTED_SITES } from "@shared/constants";
+import { detectCurrentTitle, getOverlayAnchor, type TitleInfo } from "@shared/utils/dom";
+import { SUPPORTED_SITES, STORAGE_KEYS } from "@shared/constants";
+import { getSettings } from "@shared/utils/storage";
+
+/**
+ * The compiled overlay stylesheet, inlined at build time.
+ *
+ * The manifest also loads this stylesheet into the page, but styles from the
+ * page don't cross the shadow boundary — the overlay would render unstyled
+ * without this copy inside the shadow root.
+ */
+declare const __CLAPBOARD_CSS__: string;
 
 // Global state for the React root
 let reactRoot: Root | null = null;
 let overlayContainer: HTMLElement | null = null;
 let shadowRoot: ShadowRoot | null = null;
+
+// The title the overlay is currently showing, so we can tell a real change
+// from the many DOM mutations that don't change what's on screen
+let currentTitleKey: string | null = null;
 
 // Debounce timer for URL change detection
 let urlCheckTimer: ReturnType<typeof setTimeout> | null = null;
@@ -28,7 +42,7 @@ let urlCheckTimer: ReturnType<typeof setTimeout> | null = null;
 /**
  * Initialize the content script
  */
-function init(): void {
+async function init(): Promise<void> {
   // Very visible log to confirm script is running
   console.log(
     "%c[Clapboard] Content script loaded!",
@@ -46,11 +60,19 @@ function init(): void {
 
   console.log("[Clapboard] Detected streaming site:", site);
 
+  // React to the overlay being switched on or off from the popup without
+  // requiring a page reload
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes[STORAGE_KEYS.SETTINGS]) {
+      void checkForTitle();
+    }
+  });
+
   // Set up URL change detection (for SPAs)
   observeUrlChanges();
 
   // Initial check for title display
-  checkForTitle();
+  await checkForTitle();
 }
 
 /**
@@ -101,14 +123,28 @@ function onUrlChange(): void {
   }
 
   urlCheckTimer = setTimeout(() => {
-    checkForTitle();
+    void checkForTitle();
   }, 500);
+}
+
+/**
+ * Identity for a detected title, used to decide whether to re-render
+ */
+function titleKey(titleInfo: TitleInfo): string {
+  return `${titleInfo.title}|${titleInfo.year ?? ""}|${titleInfo.type ?? ""}`;
 }
 
 /**
  * Check if we're on a title detail page and should show the overlay
  */
-function checkForTitle(): void {
+async function checkForTitle(): Promise<void> {
+  const settings = await getSettings();
+
+  if (!settings.enabled) {
+    unmountOverlay();
+    return;
+  }
+
   console.log("[Clapboard] Checking for title on page...");
   const titleInfo = detectCurrentTitle();
 
@@ -122,14 +158,27 @@ function checkForTitle(): void {
 }
 
 /**
- * Mount the React overlay UI
+ * Mount the React overlay UI, or re-render it when the title has changed
  */
-function mountOverlay(titleInfo: { title: string; year?: number }): void {
-  // Don't remount if already mounted
-  if (overlayContainer && document.body.contains(overlayContainer)) {
-    // TODO: Update existing overlay with new title info
+function mountOverlay(titleInfo: TitleInfo): void {
+  const key = titleKey(titleInfo);
+  const isMounted =
+    overlayContainer !== null && document.body.contains(overlayContainer);
+
+  if (isMounted) {
+    // Same title, nothing to do — this fires constantly on SPA sites
+    if (key === currentTitleKey) return;
+
+    // Different title in an overlay that's already up: re-render in place so
+    // the card doesn't flicker out and back in during navigation
+    currentTitleKey = key;
+    reactRoot?.render(createElement(App, { titleInfo }));
+    console.log("[Clapboard] Overlay updated for:", titleInfo.title);
     return;
   }
+
+  // A stale container can survive if the host page replaced its subtree
+  unmountOverlay();
 
   // Create container element
   overlayContainer = document.createElement("div");
@@ -138,15 +187,16 @@ function mountOverlay(titleInfo: { title: string; year?: number }): void {
   // Create shadow DOM for style isolation
   shadowRoot = overlayContainer.attachShadow({ mode: "open" });
 
-  // Inject styles into shadow DOM
+  // Inject the compiled stylesheet into the shadow root
   const styleElement = document.createElement("style");
   styleElement.textContent = `
-    /* TODO: Inject compiled Tailwind CSS here during build */
     /* Base reset for shadow DOM */
     :host {
       all: initial;
       font-family: system-ui, -apple-system, sans-serif;
     }
+
+    ${__CLAPBOARD_CSS__}
   `;
   shadowRoot.appendChild(styleElement);
 
@@ -165,6 +215,7 @@ function mountOverlay(titleInfo: { title: string; year?: number }): void {
   }
 
   // Mount React app
+  currentTitleKey = key;
   reactRoot = createRoot(mountPoint);
   reactRoot.render(createElement(App, { titleInfo }));
 
@@ -175,6 +226,8 @@ function mountOverlay(titleInfo: { title: string; year?: number }): void {
  * Unmount the React overlay UI
  */
 function unmountOverlay(): void {
+  if (!reactRoot && !overlayContainer) return;
+
   if (reactRoot) {
     reactRoot.unmount();
     reactRoot = null;
@@ -182,18 +235,20 @@ function unmountOverlay(): void {
 
   if (overlayContainer && overlayContainer.parentNode) {
     overlayContainer.parentNode.removeChild(overlayContainer);
-    overlayContainer = null;
-    shadowRoot = null;
   }
+
+  overlayContainer = null;
+  shadowRoot = null;
+  currentTitleKey = null;
 
   console.log("[Clapboard] Overlay unmounted");
 }
 
 // Initialize when DOM is ready
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener("DOMContentLoaded", () => void init());
 } else {
-  init();
+  void init();
 }
 
 // Export for testing

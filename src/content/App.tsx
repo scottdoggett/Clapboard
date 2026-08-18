@@ -13,6 +13,7 @@ interface AppProps {
   titleInfo: {
     title: string;
     year?: number;
+    type?: "movie" | "series";
   };
 }
 
@@ -20,7 +21,7 @@ interface AppProps {
  * Root component for the Clapboard overlay
  */
 const App: React.FC<AppProps> = ({ titleInfo }) => {
-  const { movie, ratings, isLoading, error } = useMovieData(titleInfo);
+  const { movie, ratings, averageScore, isLoading, error } = useMovieData(titleInfo);
 
   // Don't render anything while loading initial data
   if (isLoading && !movie) {
@@ -36,11 +37,29 @@ const App: React.FC<AppProps> = ({ titleInfo }) => {
     );
   }
 
-  // Handle errors gracefully
+  // Surface errors in the card rather than vanishing — a silent disappearance
+  // is indistinguishable from "this title has no ratings", and the most common
+  // cause here is a misconfigured backend the user can actually fix.
   if (error) {
     console.error("[Clapboard] Error loading movie data:", error);
-    // TODO: Decide whether to show error state or silently fail
-    return null;
+
+    return (
+      <div className="cb-fixed cb-bottom-4 cb-right-4 cb-z-[999999]">
+        <div className="cb-bg-surface cb-rounded-overlay cb-p-4 cb-shadow-overlay cb-w-80">
+          <div className="cb-flex cb-items-start cb-gap-2">
+            <span className="cb-text-base">⚠️</span>
+            <div>
+              <p className="cb-text-white cb-text-sm cb-font-medium cb-m-0">
+                Clapboard couldn&apos;t load ratings
+              </p>
+              <p className="cb-text-gray-400 cb-text-xs cb-mt-1 cb-m-0">
+                {error.message}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Don't render if we couldn't find the movie
@@ -50,7 +69,7 @@ const App: React.FC<AppProps> = ({ titleInfo }) => {
 
   return (
     <div className="cb-fixed cb-bottom-4 cb-right-4 cb-z-[999999]">
-      <OverlayCard movie={movie} ratings={ratings} />
+      <OverlayCard movie={movie} ratings={ratings} averageScore={averageScore} />
     </div>
   );
 };

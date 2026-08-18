@@ -10,6 +10,7 @@
     "dev": "next dev --turbopack",
     "build": "tsx scripts/build.ts",
     "build:watch": "tsx watch scripts/build.ts",
+    "verify:parsers": "tsx scripts/verify-parsers.ts",
     "lint": "tsc --noEmit && eslint ."
   },
   "dependencies": {
@@ -19,7 +20,7 @@
     "react-dom": "*"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.18",
+    "@eslint/js": "^9.39.5",
     "@types/chrome": "*",
     "@types/node": "*",
     "@types/react": "*",
@@ -29,10 +30,12 @@
     "esbuild": "*",
     "eslint": "*",
     "eslint-config-next": "*",
+    "globals": "^16.5.0",
     "postcss": "*",
-    "tailwindcss": "*",
+    "tailwindcss": "^3.4.19",
     "tsx": "*",
-    "typescript": "*"
+    "typescript": "*",
+    "typescript-eslint": "^8.67.0"
   },
   "engines": {
     "node": ">=18.0.0"

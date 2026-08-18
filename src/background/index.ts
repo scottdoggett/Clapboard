@@ -3,15 +3,40 @@
  *
  * This is the Manifest V3 background script (service worker) that handles:
  * - Extension lifecycle events (install, update, startup)
- * - Message routing between content scripts, popup, and external APIs
- * - API orchestration for fetching movie data and ratings
- * - Caching and storage management
+ * - Message routing between content scripts, popup, and the Convex backend
+ * - A local cache layer in front of the backend
  *
  * Note: Service workers are ephemeral in MV3 — avoid storing state in memory.
  * Use chrome.storage for persistence.
  */
 
-import type { Message, MessageResponse } from "@shared/types/messages";
+import type {
+  Message,
+  MessageResponse,
+  ExtensionStatus,
+} from "@shared/types/messages";
+import type { MovieData } from "@shared/types/movie";
+import type { ClapboardSettings } from "@shared/utils/storage";
+import {
+  getSettings,
+  updateSettings,
+  getCachedMovieData,
+  setCachedMovieData,
+  clearCache,
+  getCacheSize,
+  DEFAULT_SETTINGS,
+} from "@shared/utils/storage";
+import { lookupMovie, queryAiScores, closeClient } from "@shared/api/convex";
+import { calculateAverageScore } from "@shared/utils/scoring";
+import { buildLookupKey } from "@shared/utils/text";
+import { EXTENSION_INFO, STORAGE_KEYS } from "@shared/constants";
+
+/**
+ * Convex URL baked in at build time from the CONVEX_URL environment variable.
+ * A URL stored in settings takes precedence, so a user can point the extension
+ * at their own deployment without rebuilding.
+ */
+const BUILD_TIME_CONVEX_URL = process.env.CONVEX_URL || "";
 
 /**
  * Extension installation handler
@@ -20,21 +45,13 @@ chrome.runtime.onInstalled.addListener((details) => {
   console.log("[Clapboard] Extension installed:", details.reason);
 
   if (details.reason === "install") {
-    // First-time installation setup
-    // TODO: Initialize default settings in chrome.storage
-    // TODO: Open onboarding page or popup
+    // Seed defaults so the popup has something coherent to render on first open
+    void chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: DEFAULT_SETTINGS });
   } else if (details.reason === "update") {
-    // Extension updated
-    // TODO: Handle migrations if needed
+    // Cached payload shapes are tied to the extension version — drop the cache
+    // on update rather than trying to migrate entries between shapes.
+    void clearCache();
   }
-});
-
-/**
- * Extension startup handler (runs when browser starts with extension enabled)
- */
-chrome.runtime.onStartup.addListener(() => {
-  console.log("[Clapboard] Extension started");
-  // TODO: Initialize any necessary state
 });
 
 /**
@@ -53,7 +70,10 @@ chrome.runtime.onMessage.addListener(
       .then(sendResponse)
       .catch((error) => {
         console.error("[Clapboard] Message handling error:", error);
-        sendResponse({ success: false, error: error.message });
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
 
     // Return true to indicate async response
@@ -72,63 +92,189 @@ async function handleMessage(
     case "GET_MOVIE_DATA":
       return handleGetMovieData(message.payload);
 
-    case "FETCH_RATINGS":
-      return handleFetchRatings(message.payload);
-
     case "AI_SCORE_REQUEST":
       return handleAiScoreRequest(message.payload);
 
-    default:
+    case "GET_STATUS":
+      return handleGetStatus();
+
+    case "SET_ENABLED":
+      return handleSetEnabled(message.payload);
+
+    case "UPDATE_SETTINGS":
+      return handleUpdateSettings(message.payload);
+
+    case "CLEAR_CACHE":
+      return handleClearCache();
+
+    default: {
       // TypeScript exhaustiveness check
-      const _exhaustive: never = message;
-      return { success: false, error: `Unknown message type: ${(_exhaustive as Message).type}` };
+      const exhaustive: never = message;
+      return {
+        success: false,
+        error: `Unknown message type: ${(exhaustive as Message).type}`,
+      };
+    }
   }
 }
 
 /**
- * Fetch movie data from Convex backend
+ * Resolve the Convex deployment URL, preferring the user's override
+ *
+ * @param settings - Current settings
+ * @returns The URL to use, or an empty string when unconfigured
  */
-async function handleGetMovieData(
-  payload: { title: string; year?: number }
-): Promise<MessageResponse> {
-  // TODO: Implement Convex query for movie data
-  console.log("[Clapboard] Getting movie data for:", payload.title);
+function resolveConvexUrl(settings: ClapboardSettings): string {
+  return settings.convexUrl || BUILD_TIME_CONVEX_URL;
+}
+
+/**
+ * Build the cache key for a title lookup.
+ *
+ * Uses the same normalization as the backend so the two caches agree on what
+ * counts as the same title.
+ */
+function cacheKey(title: string, year?: number, type?: string): string {
+  return buildLookupKey(title, year, type);
+}
+
+/**
+ * Fetch movie data — metadata, ratings, and awards — for a detected title.
+ *
+ * Served from the local cache when possible; otherwise from Convex, which has
+ * its own shared cache in front of the ratings provider.
+ */
+async function handleGetMovieData(payload: {
+  title: string;
+  year?: number;
+  type?: "movie" | "series";
+}): Promise<MessageResponse<MovieData | null>> {
+  const settings = await getSettings();
+
+  if (!settings.enabled) {
+    return { success: true, data: null };
+  }
+
+  const key = cacheKey(payload.title, payload.year, payload.type);
+
+  const cached = await getCachedMovieData(key);
+  if (cached) {
+    console.log("[Clapboard] Cache hit for:", payload.title);
+    return { success: true, data: cached.data };
+  }
+
+  const url = resolveConvexUrl(settings);
+  if (!url) {
+    return {
+      success: false,
+      error:
+        "No Convex deployment URL configured. Open the Clapboard popup to set one.",
+    };
+  }
+
+  console.log("[Clapboard] Looking up:", payload.title, payload.year ?? "");
+
+  const result = await lookupMovie(
+    url,
+    payload.title,
+    payload.year,
+    payload.type
+  );
+
+  const data: MovieData | null = result
+    ? {
+        ...result,
+        averageScore: calculateAverageScore(result.ratings) ?? undefined,
+      }
+    : null;
+
+  // Cache negative results too — an unmatched title would otherwise re-query
+  // the backend on every SPA navigation back to the same page.
+  await setCachedMovieData(key, data);
+
+  return { success: true, data };
+}
+
+/**
+ * Request AI-generated scores for a movie's reviews (Phase 3)
+ */
+async function handleAiScoreRequest(payload: {
+  movieId: string;
+}): Promise<MessageResponse> {
+  const settings = await getSettings();
+  const url = resolveConvexUrl(settings);
+
+  if (!url) {
+    return { success: false, error: "No Convex deployment URL configured." };
+  }
+
+  const review = await queryAiScores(url, payload.movieId);
+
+  return { success: true, data: review?.aiScores ?? null };
+}
+
+/**
+ * Report extension status to the popup
+ */
+async function handleGetStatus(): Promise<MessageResponse<ExtensionStatus>> {
+  const settings = await getSettings();
+  const url = resolveConvexUrl(settings);
 
   return {
     success: true,
-    data: null, // TODO: Return actual movie data
+    data: {
+      enabled: settings.enabled,
+      configured: Boolean(url),
+      convexUrl: url,
+      cacheSize: await getCacheSize(),
+      version: EXTENSION_INFO.VERSION,
+    },
   };
 }
 
 /**
- * Fetch ratings from all sources
+ * Toggle the overlay on or off
  */
-async function handleFetchRatings(
-  payload: { movieId: string }
-): Promise<MessageResponse> {
-  // TODO: Implement ratings fetch from Convex
-  console.log("[Clapboard] Fetching ratings for movie:", payload.movieId);
+async function handleSetEnabled(payload: {
+  enabled: boolean;
+}): Promise<MessageResponse<ClapboardSettings>> {
+  const settings = await updateSettings({ enabled: payload.enabled });
 
-  return {
-    success: true,
-    data: [], // TODO: Return actual ratings
-  };
+  return { success: true, data: settings };
 }
 
 /**
- * Request AI-generated scores for a movie's reviews
+ * Apply a settings update
  */
-async function handleAiScoreRequest(
-  payload: { movieId: string }
-): Promise<MessageResponse> {
-  // TODO: Implement AI score processing (Phase 3)
-  console.log("[Clapboard] AI score request for movie:", payload.movieId);
+async function handleUpdateSettings(
+  payload: Partial<ClapboardSettings>
+): Promise<MessageResponse<ClapboardSettings>> {
+  const settings = await updateSettings(payload);
 
-  return {
-    success: false,
-    error: "AI scoring not yet implemented",
-  };
+  if (payload.convexUrl !== undefined) {
+    // Point the client at the new deployment, and drop cached results that
+    // came from the old one.
+    closeClient();
+    await clearCache();
+  }
+
+  return { success: true, data: settings };
+}
+
+/**
+ * Clear the local lookup cache
+ */
+async function handleClearCache(): Promise<MessageResponse<{ cleared: true }>> {
+  await clearCache();
+
+  return { success: true, data: { cleared: true } };
 }
 
 // Export for testing purposes
-export { handleMessage, handleGetMovieData, handleFetchRatings, handleAiScoreRequest };
+export {
+  handleMessage,
+  handleGetMovieData,
+  handleAiScoreRequest,
+  handleGetStatus,
+  cacheKey,
+};

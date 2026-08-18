@@ -55,6 +55,11 @@ export interface Award {
   category?: string; // e.g., "Best Picture", "Best Actor"
   year: number;
   isWin: boolean; // true = won, false = nominated
+
+  // How many of this award. Our upstream source reports counts rather than
+  // individual categories ("Won 4 Oscars"), so one record can stand for
+  // several awards. Treat a missing count as 1.
+  count?: number;
 }
 
 /**

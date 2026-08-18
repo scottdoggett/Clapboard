@@ -20,6 +20,8 @@ export const SUPPORTED_SITES = {
       titleText: '[data-uia="title-info"] h1, .title-title',
       // Selector for the overlay anchor point
       overlayAnchor: ".detail-modal, .watch-video",
+      // Presence of this element means the title is a series, not a film
+      seriesIndicator: '[data-uia="episode-list"], .episodeSelector',
     },
   },
   disneyPlus: {
@@ -29,15 +31,17 @@ export const SUPPORTED_SITES = {
       titlePage: '[data-testid="details-page"]',
       titleText: '[data-testid="details-title"]',
       overlayAnchor: '[data-testid="details-page"]',
+      seriesIndicator: '[data-testid="episodes-tab"], [data-testid="season-select"]',
     },
   },
   primeVideo: {
     name: "Prime Video",
     hostPatterns: ["primevideo.com", "amazon.com/gp/video"],
     selectors: {
-      titlePage: 'h1',
-      titleText: 'h1',
+      titlePage: "h1",
+      titleText: "h1",
       overlayAnchor: "body",
+      seriesIndicator: '[data-automation-id="ep-title"], [data-testid="episode-list"]',
     },
   },
   crave: {
@@ -47,6 +51,7 @@ export const SUPPORTED_SITES = {
       titlePage: ".program-details",
       titleText: ".program-title",
       overlayAnchor: ".program-details",
+      seriesIndicator: ".season-selector, .episode-list",
     },
   },
 } as const;

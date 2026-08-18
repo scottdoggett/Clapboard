@@ -1,142 +1,129 @@
 /**
  * Convex API Client
  *
- * Initializes and exports the Convex client for use in the extension.
- * Provides typed query and mutation helpers for interacting with the backend.
+ * Talks to the Convex backend from the background service worker.
  *
- * Note: In a Chrome extension context, the Convex client runs in the
- * background service worker and communicates with content scripts via
- * Chrome runtime messaging.
+ * Two deliberate choices here:
+ *
+ * 1. `ConvexHttpClient` rather than `ConvexClient`. The WebSocket client keeps
+ *    a live subscription open, which an ephemeral MV3 service worker can't
+ *    hold onto — the worker is torn down between messages. Plain HTTP requests
+ *    match the worker's lifecycle.
+ *
+ * 2. String function references via `makeFunctionReference` rather than the
+ *    generated `api` object. `convex/_generated/` only exists after a
+ *    deployment has been provisioned, and the extension bundle shouldn't fail
+ *    to build just because codegen hasn't run. The tradeoff is that function
+ *    names are checked at runtime, not compile time — if you rename a Convex
+ *    function, update the reference strings below.
  */
 
-import { ConvexClient } from "convex/browser";
-import type { Movie, Rating, Review, User } from "@shared/types/movie";
+import { ConvexHttpClient } from "convex/browser";
+import { makeFunctionReference } from "convex/server";
+import type { Movie, Rating, Review, MovieData } from "@shared/types/movie";
 
-// Convex client instance (lazy initialization)
-let client: ConvexClient | null = null;
+// Convex client instance, keyed by the URL it was created for
+let client: ConvexHttpClient | null = null;
+let clientUrl: string | null = null;
+
+/**
+ * The result shape returned by the `omdb:lookup` action
+ */
+interface LookupResult {
+  movie: Movie & { awards: NonNullable<Movie["awards"]> };
+  ratings: Rating[];
+}
+
+/**
+ * Typed references to the backend functions we call
+ */
+const lookupRef = makeFunctionReference<
+  "action",
+  { title: string; year?: number; type?: "movie" | "series" },
+  LookupResult | null
+>("omdb:lookup");
+
+const aiScoresRef = makeFunctionReference<
+  "query",
+  { movieId: string },
+  Review | null
+>("reviews:getAiScores");
 
 /**
  * Get or create the Convex client
  *
- * @returns Convex client instance
+ * @param url - Convex deployment URL
+ * @returns Convex HTTP client instance
+ * @throws If no deployment URL is configured
  */
-export function getConvexClient(): ConvexClient {
-  if (!client) {
-    const url = process.env.CONVEX_URL;
+export function getConvexClient(url: string): ConvexHttpClient {
+  if (!url) {
+    throw new Error(
+      "No Convex deployment URL configured. Set CONVEX_URL at build time, or enter one in the Clapboard popup."
+    );
+  }
 
-    if (!url) {
-      throw new Error("CONVEX_URL environment variable is not set");
-    }
-
-    client = new ConvexClient(url);
+  if (!client || clientUrl !== url) {
+    client = new ConvexHttpClient(url);
+    clientUrl = url;
   }
 
   return client;
 }
 
 /**
- * Query movies by title and optional year
+ * Look up a title's metadata, ratings, and awards.
  *
- * @param title - Movie title to search for
+ * The backend serves this from its own cache when it can and falls back to
+ * OMDb otherwise, so callers can treat it as a single cheap request.
+ *
+ * @param url - Convex deployment URL
+ * @param title - Movie or show title as displayed by the streaming site
  * @param year - Optional release year for disambiguation
- * @returns Movie data or null if not found
+ * @param type - Optional content type hint
+ * @returns Movie data with ratings, or null when the title can't be matched
  */
-export async function queryMovie(
+export async function lookupMovie(
+  url: string,
   title: string,
-  year?: number
-): Promise<Movie | null> {
-  // TODO: Implement actual Convex query
-  // const client = getConvexClient();
-  // return await client.query(api.movies.getByTitle, { title, year });
+  year?: number,
+  type?: "movie" | "series"
+): Promise<MovieData | null> {
+  const convex = getConvexClient(url);
 
-  console.log("[Clapboard API] queryMovie:", title, year);
-  return null; // Placeholder
+  const result = await convex.action(lookupRef, { title, year, type });
+
+  if (!result) {
+    return null;
+  }
+
+  return {
+    movie: result.movie,
+    ratings: result.ratings,
+  };
 }
 
 /**
- * Query ratings for a movie
+ * Query AI-generated scores for a movie's reviews (Phase 3)
  *
+ * @param url - Convex deployment URL
  * @param movieId - Convex document ID for the movie
- * @returns Array of ratings from different sources
+ * @returns Review with AI scores, or null if none have been generated
  */
-export async function queryRatings(movieId: string): Promise<Rating[]> {
-  // TODO: Implement actual Convex query
-  // const client = getConvexClient();
-  // return await client.query(api.ratings.getForMovie, { movieId });
+export async function queryAiScores(
+  url: string,
+  movieId: string
+): Promise<Review | null> {
+  const convex = getConvexClient(url);
 
-  console.log("[Clapboard API] queryRatings:", movieId);
-  return []; // Placeholder
+  return await convex.query(aiScoresRef, { movieId });
 }
 
 /**
- * Query AI-generated scores for a movie's reviews
- *
- * @param movieId - Convex document ID for the movie
- * @returns Review with AI scores or null
- */
-export async function queryAiScores(movieId: string): Promise<Review | null> {
-  // TODO: Implement actual Convex query
-  // const client = getConvexClient();
-  // return await client.query(api.reviews.getAiScores, { movieId });
-
-  console.log("[Clapboard API] queryAiScores:", movieId);
-  return null; // Placeholder
-}
-
-/**
- * Get current user profile
- *
- * @param clerkId - Clerk authentication user ID
- * @returns User profile or null
- */
-export async function queryUser(clerkId: string): Promise<User | null> {
-  // TODO: Implement actual Convex query
-  // const client = getConvexClient();
-  // return await client.query(api.users.getByClerkId, { clerkId });
-
-  console.log("[Clapboard API] queryUser:", clerkId);
-  return null; // Placeholder
-}
-
-/**
- * Request a rating refresh for a movie
- * (Triggers background job to fetch fresh ratings)
- *
- * @param movieId - Convex document ID for the movie
- */
-export async function requestRatingRefresh(movieId: string): Promise<void> {
-  // TODO: Implement actual Convex mutation
-  // const client = getConvexClient();
-  // await client.mutation(api.ratings.requestRefresh, { movieId });
-
-  console.log("[Clapboard API] requestRatingRefresh:", movieId);
-}
-
-/**
- * Request AI processing for a movie's reviews
- * (Triggers background job to analyze reviews)
- *
- * @param movieId - Convex document ID for the movie
- */
-export async function requestAiProcessing(movieId: string): Promise<void> {
-  // TODO: Implement actual Convex mutation
-  // const client = getConvexClient();
-  // await client.mutation(api.reviews.requestProcessing, { movieId });
-
-  console.log("[Clapboard API] requestAiProcessing:", movieId);
-}
-
-/**
- * Close the Convex client connection
- * (Called when extension is disabled or uninstalled)
+ * Drop the cached client, forcing the next call to reconnect.
+ * Called when the deployment URL changes.
  */
 export function closeClient(): void {
-  if (client) {
-    // Note: ConvexClient doesn't have an explicit close method,
-    // but setting to null allows garbage collection
-    client = null;
-  }
+  client = null;
+  clientUrl = null;
 }
-
-// Export client getter for direct access if needed
-export { client };

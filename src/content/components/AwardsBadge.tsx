@@ -28,16 +28,30 @@ const AWARD_ICONS: Record<string, string> = {
 /**
  * Awards badge component
  */
+/**
+ * Total awards a record stands for. Our source reports counts rather than
+ * individual categories, so one record can be worth several awards.
+ */
+function awardCount(award: Award): number {
+  return award.count ?? 1;
+}
+
 const AwardsBadge: React.FC<AwardsBadgeProps> = ({ awards }) => {
   const [showAll, setShowAll] = useState(false);
 
-  // Separate wins from nominations
-  const wins = awards.filter((a) => a.isWin);
-  const nominations = awards.filter((a) => !a.isWin);
+  // Separate wins from nominations, counting what each record represents
+  const winCount = awards
+    .filter((a) => a.isWin)
+    .reduce((total, award) => total + awardCount(award), 0);
+  const nominationCount = awards
+    .filter((a) => !a.isWin)
+    .reduce((total, award) => total + awardCount(award), 0);
 
-  // Show only major awards in collapsed view
-  const majorAwards = wins.slice(0, 3);
-  const displayedAwards = showAll ? awards : majorAwards;
+  // Show wins first in the collapsed view — they're what people scan for
+  const sorted = [...awards].sort(
+    (a, b) => Number(b.isWin) - Number(a.isWin) || awardCount(b) - awardCount(a)
+  );
+  const displayedAwards = showAll ? sorted : sorted.slice(0, 3);
 
   if (awards.length === 0) {
     return null;
@@ -52,14 +66,14 @@ const AwardsBadge: React.FC<AwardsBadgeProps> = ({ awards }) => {
           <span className="cb-text-white cb-font-medium cb-text-sm">Awards</span>
         </div>
         <div className="cb-flex cb-items-center cb-gap-3 cb-text-xs">
-          {wins.length > 0 && (
+          {winCount > 0 && (
             <span className="cb-text-yellow-400">
-              {wins.length} Win{wins.length !== 1 ? "s" : ""}
+              {winCount} Win{winCount !== 1 ? "s" : ""}
             </span>
           )}
-          {nominations.length > 0 && (
+          {nominationCount > 0 && (
             <span className="cb-text-gray-400">
-              {nominations.length} Nom{nominations.length !== 1 ? "s" : ""}
+              {nominationCount} Nom{nominationCount !== 1 ? "s" : ""}
             </span>
           )}
         </div>
@@ -76,7 +90,7 @@ const AwardsBadge: React.FC<AwardsBadgeProps> = ({ awards }) => {
       {awards.length > 3 && (
         <button
           onClick={() => setShowAll(!showAll)}
-          className="cb-mt-2 cb-text-xs cb-text-gray-400 cb-hover:text-white cb-transition-colors"
+          className="cb-mt-2 cb-text-xs cb-text-gray-400 hover:cb-text-white cb-transition-colors"
         >
           {showAll ? "Show less" : `Show all ${awards.length} awards`}
         </button>
@@ -90,6 +104,7 @@ const AwardsBadge: React.FC<AwardsBadgeProps> = ({ awards }) => {
  */
 const AwardItem: React.FC<{ award: Award }> = ({ award }) => {
   const icon = AWARD_ICONS[award.name] || AWARD_ICONS.default;
+  const count = awardCount(award);
 
   return (
     <div className="cb-flex cb-items-center cb-gap-2 cb-text-sm">
@@ -100,7 +115,7 @@ const AwardItem: React.FC<{ award: Award }> = ({ award }) => {
             award.isWin ? "cb-text-yellow-400" : "cb-text-gray-400"
           }`}
         >
-          {award.name}
+          {count > 1 ? `${count} × ${award.name}` : award.name}
         </span>
         {award.category && (
           <span className="cb-text-gray-500 cb-text-xs cb-ml-1">

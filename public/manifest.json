@@ -34,7 +34,6 @@
         "https://*.amazon.com/gp/video/*"
       ],
       "js": ["content/index.js"],
-      "css": ["content/styles/overlay.css"],
       "run_at": "document_idle"
     }
   ],
