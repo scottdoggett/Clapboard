@@ -17,6 +17,9 @@ import {
   parseRatingValue,
   normalizeTitle,
   lookupKey,
+  classifyOmdbFailure,
+  isRetryable,
+  isCacheableMiss,
 } from "../convex/omdbParse";
 
 let failures = 0;
@@ -174,6 +177,47 @@ check(
 check("diacritics stripped", normalizeTitle("Amélie"), "amelie");
 check("lookup key", lookupKey("Inception", 2010, "movie"), "inception|2010|movie");
 check("lookup key sparse", lookupKey("Inception"), "inception||");
+
+// --- Failure classification ------------------------------------------------
+// OMDb returns 401 for both "Invalid API key!" and "Request limit reached!",
+// so the status alone can't separate them; a genuine miss is 200 with
+// "Movie not found!". Both halves feed the verdict, and anything unrecognised
+// must stay out of the "no such title" bucket, which is the one that's cached.
+
+const kindOf = (error?: string, status?: number) =>
+  classifyOmdbFailure(error, status).kind;
+
+check("movie not found is a miss", kindOf("Movie not found!"), "notFound");
+check("series not found is a miss", kindOf("Series not found!"), "notFound");
+check("invalid key is not a miss", kindOf("Invalid API key!"), "invalidKey");
+check("missing key is not a miss", kindOf("No API key provided."), "invalidKey");
+check("quota exhausted is not a miss", kindOf("Request limit reached!"), "rateLimited");
+check("bad imdb id", kindOf("Incorrect IMDb ID."), "badRequest");
+
+// HTTP-level failures, where there's no body to read
+check("401 is a key problem", kindOf(undefined, 401), "invalidKey");
+check("429 is a quota problem", kindOf(undefined, 429), "rateLimited");
+check("500 is transient", kindOf(undefined, 503), "transient");
+
+// The safety property: anything unrecognised must never be read as "no such
+// title", because that answer gets cached and outlives whatever caused it
+check("an unknown error is not a miss", kindOf("Something went wrong."), "transient");
+check("an empty error is not a miss", kindOf(undefined, 200), "transient");
+
+check(
+  "only transient failures retry",
+  ["notFound", "invalidKey", "rateLimited", "badRequest", "transient"].filter((kind) =>
+    isRetryable({ kind: kind as never, message: "" })
+  ),
+  ["transient"]
+);
+check(
+  "only a real miss is cacheable",
+  ["notFound", "invalidKey", "rateLimited", "badRequest", "transient"].filter((kind) =>
+    isCacheableMiss({ kind: kind as never, message: "" })
+  ),
+  ["notFound"]
+);
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

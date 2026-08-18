@@ -24,7 +24,12 @@ import type { Doc, Id } from "./_generated/dataModel";
 import {
   lookupKey,
   parseOmdbResponse,
+  classifyOmdbFailure,
+  isRetryable,
+  isCacheableMiss,
+  describeFailure,
   type LookupResult,
+  type OmdbFailure,
   type OmdbResponse,
 } from "./omdbParse";
 
@@ -44,6 +49,12 @@ const RATINGS_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const NOT_FOUND_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 const OMDB_ENDPOINT = "https://www.omdbapi.com/";
+
+/** Attempts per request, including the first. Only transient failures retry. */
+const MAX_ATTEMPTS = 3;
+
+/** Backoff before retry N, in ms. */
+const RETRY_DELAY_MS = [250, 750];
 
 /**
  * Content type as detected by the extension
@@ -315,27 +326,66 @@ async function upsertLookupRow(
 // ---------------------------------------------------------------------------
 
 /**
- * Call OMDb with a set of query parameters
+ * The outcome of one OMDb query: a title, or a classified reason there isn't one.
+ */
+type OmdbFetchResult =
+  | { ok: true; data: OmdbResponse }
+  | { ok: false; failure: OmdbFailure };
+
+/**
+ * Call OMDb, retrying only failures that retrying can fix.
+ *
+ * Both the status and the body feed the classification: 401 covers a wrong key
+ * and an exhausted quota alike, and a 200 can still carry `{"Response":"False"}`
+ * for a miss.
  */
 async function fetchOmdb(
   apiKey: string,
   params: Record<string, string>
-): Promise<OmdbResponse | null> {
+): Promise<OmdbFetchResult> {
   const url = new URL(OMDB_ENDPOINT);
   url.searchParams.set("apikey", apiKey);
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
 
-  const response = await fetch(url.toString());
+  let failure: OmdbFailure = { kind: "transient", message: "no attempt made" };
 
-  if (!response.ok) {
-    throw new Error(`OMDb request failed: ${response.status}`);
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, RETRY_DELAY_MS[attempt - 1] ?? 750)
+      );
+    }
+
+    try {
+      const response = await fetch(url.toString());
+
+      // The body is worth reading whatever the status: OMDb puts its own
+      // explanation there even on a 401, and "Invalid API key!" is a great
+      // deal more useful to act on than "HTTP 401".
+      const data = await response
+        .json()
+        .then((body) => body as OmdbResponse)
+        .catch(() => null);
+
+      if (response.ok && data?.Response === "True") {
+        return { ok: true, data };
+      }
+
+      failure = classifyOmdbFailure(data?.Error, response.status);
+    } catch (error) {
+      // Network-level failure — no status, no body, always worth one more go
+      failure = {
+        kind: "transient",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    if (!isRetryable(failure)) break;
   }
 
-  const data = (await response.json()) as OmdbResponse;
-
-  return data.Response === "True" ? data : null;
+  return { ok: false, failure };
 }
 
 /**
@@ -343,18 +393,38 @@ async function fetchOmdb(
  *
  * Streaming sites often show a title without the year, or with a localized or
  * abbreviated name, so we try progressively looser queries.
+ *
+ * A failure that isn't "no such title" stops the ladder immediately. Trying
+ * three more variations against a rejected key or an exhausted quota just
+ * spends more of a 1,000-a-day allowance to be told the same thing.
  */
 async function resolveFromOmdb(
   apiKey: string,
   title: string,
   year?: number,
   type?: "movie" | "series"
-): Promise<OmdbResponse | null> {
+): Promise<OmdbFetchResult> {
   const typeParam: Record<string, string> = type ? { type } : {};
+  let lastFailure: OmdbFailure = {
+    kind: "notFound",
+    message: `No OMDb match for "${title}"`,
+  };
+
+  /** Run one query; returns the result, or null to keep widening. */
+  const attempt = async (
+    params: Record<string, string>
+  ): Promise<OmdbFetchResult | null> => {
+    const result = await fetchOmdb(apiKey, params);
+
+    if (result.ok) return result;
+
+    lastFailure = result.failure;
+    return isCacheableMiss(result.failure) ? null : result;
+  };
 
   // 1. Exact title, with year if we have one
   if (year !== undefined) {
-    const withYear = await fetchOmdb(apiKey, {
+    const withYear = await attempt({
       t: title,
       y: String(year),
       plot: "short",
@@ -364,22 +434,26 @@ async function resolveFromOmdb(
   }
 
   // 2. Exact title, no year
-  const withoutYear = await fetchOmdb(apiKey, {
-    t: title,
-    plot: "short",
-    ...typeParam,
-  });
+  const withoutYear = await attempt({ t: title, plot: "short", ...typeParam });
   if (withoutYear) return withoutYear;
 
   // 3. Search, then fetch full details for the best match. The `s` endpoint
   //    returns no ratings, so a second request by IMDb ID is required.
-  const search = (await fetchOmdb(apiKey, {
-    s: title,
-    ...typeParam,
-  })) as (OmdbResponse & { Search?: Array<{ imdbID: string }> }) | null;
+  const search = await fetchOmdb(apiKey, { s: title, ...typeParam });
 
-  const firstMatch = search?.Search?.[0]?.imdbID;
-  if (!firstMatch) return null;
+  if (!search.ok) {
+    return isCacheableMiss(search.failure)
+      ? { ok: false, failure: lastFailure }
+      : search;
+  }
+
+  const firstMatch = (search.data as OmdbResponse & {
+    Search?: Array<{ imdbID: string }>;
+  }).Search?.[0]?.imdbID;
+
+  if (!firstMatch) {
+    return { ok: false, failure: lastFailure };
+  }
 
   return await fetchOmdb(apiKey, { i: firstMatch, plot: "short" });
 }
@@ -416,14 +490,26 @@ export const lookup = action({
       );
     }
 
-    const data = await resolveFromOmdb(apiKey, title, year, type);
+    const result = await resolveFromOmdb(apiKey, title, year, type);
 
-    if (!data || !data.imdbID) {
+    if (!result.ok) {
+      // Only a real miss is worth remembering. Caching an unrecognised failure
+      // as "no such title" would outlast whatever caused it, and make the fix
+      // look like it changed nothing.
+      if (isCacheableMiss(result.failure)) {
+        await ctx.runMutation(internal.omdb.persistNotFound, { key });
+        return null;
+      }
+
+      throw new Error(describeFailure(result.failure));
+    }
+
+    if (!result.data.imdbID) {
       await ctx.runMutation(internal.omdb.persistNotFound, { key });
       return null;
     }
 
-    const parsed = parseOmdbResponse(data);
+    const parsed = parseOmdbResponse(result.data);
 
     return await ctx.runMutation(internal.omdb.persistLookup, {
       key,

@@ -352,3 +352,108 @@ export function parseOmdbResponse(data: OmdbResponse): {
     ratings,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Failure classification
+// ---------------------------------------------------------------------------
+
+/**
+ * Why an OMDb request didn't produce a title.
+ *
+ * Neither the status nor the body is sufficient alone. OMDb returns 401 for
+ * *both* "Invalid API key!" and "Request limit reached!", so the status can't
+ * tell a wrong key from an exhausted quota — only the body can. And the body
+ * can't be trusted on its own either: a `{"Response":"False"}` whose `Error`
+ * we don't recognise must not be read as "no such title", because that answer
+ * gets cached and outlives whatever actually caused it.
+ *
+ * So: read both, and default anything unfamiliar to retryable rather than to a
+ * cached miss.
+ */
+export type OmdbFailureKind =
+  | "notFound"
+  | "invalidKey"
+  | "rateLimited"
+  | "badRequest"
+  | "transient";
+
+export interface OmdbFailure {
+  kind: OmdbFailureKind;
+  /** Text worth showing a developer — OMDb's own wording where there is any */
+  message: string;
+}
+
+/**
+ * Work out what an unsuccessful OMDb response means.
+ *
+ * Verified against the live API: a missing key gives 401 "No API key
+ * provided.", a wrong one 401 "Invalid API key!". A genuine miss comes back
+ * as 200 with "Movie not found!".
+ *
+ * @param error - The `Error` field from the body, if there was one
+ * @param httpStatus - HTTP status, when the failure was at that level
+ * @returns The classified failure
+ */
+export function classifyOmdbFailure(
+  error: string | undefined,
+  httpStatus?: number
+): OmdbFailure {
+  const message = error?.trim() || `OMDb request failed (HTTP ${httpStatus ?? "?"})`;
+
+  if (error) {
+    // OMDb's error strings are a small, stable set
+    if (/limit reached/i.test(error)) return { kind: "rateLimited", message };
+    if (/api key/i.test(error)) return { kind: "invalidKey", message };
+    if (/not found/i.test(error)) return { kind: "notFound", message };
+    if (/incorrect imdb id/i.test(error)) return { kind: "badRequest", message };
+  }
+
+  if (httpStatus === 401) return { kind: "invalidKey", message };
+  if (httpStatus === 429) return { kind: "rateLimited", message };
+  if (httpStatus !== undefined && httpStatus >= 500) {
+    return { kind: "transient", message };
+  }
+
+  // Anything unrecognised is treated as transient rather than as a miss.
+  // Guessing "no such title" would cache a negative we can't justify; the cost
+  // of guessing wrong the other way is one retried request.
+  return { kind: "transient", message };
+}
+
+/**
+ * Should this failure be retried?
+ *
+ * Only genuinely transient ones. Retrying an invalid key or an exhausted quota
+ * just spends more of a 1,000-a-day allowance to get the same answer.
+ */
+export function isRetryable(failure: OmdbFailure): boolean {
+  return failure.kind === "transient";
+}
+
+/**
+ * Is this failure worth caching as "there is no such title"?
+ *
+ * Only a real miss. Caching anything else would outlast the problem that
+ * caused it.
+ */
+export function isCacheableMiss(failure: OmdbFailure): boolean {
+  return failure.kind === "notFound";
+}
+
+/**
+ * Turn a failure into something actionable for whoever has to fix it.
+ */
+export function describeFailure(failure: OmdbFailure): string {
+  switch (failure.kind) {
+    case "invalidKey":
+      return `OMDb rejected the API key (${failure.message}). Check it with: npx convex env set OMDB_API_KEY <key>`;
+    case "rateLimited":
+      return `OMDb quota exhausted (${failure.message}). The free tier allows 1,000 requests a day.`;
+    case "badRequest":
+      return `OMDb rejected the query (${failure.message}).`;
+    case "notFound":
+      return failure.message;
+    case "transient":
+      return `OMDb request failed (${failure.message}).`;
+  }
+}

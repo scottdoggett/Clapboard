@@ -12,7 +12,7 @@ npm run verify:parsers  # Check OMDb response parsers against known payloads
 npm run verify:detection # Check the title-detection logic against known URLs and title strings
 npm run verify:ai-scores # Check the AI score parser and spend guard
 npm run verify:dom      # Run title detection against fixture pages in jsdom
-npm run doctor          # Preflight: deployment, keys, feature flags, bundle freshness
+npm run doctor          # Preflight: deployment, live key check, feature flags, bundle freshness
 npx convex dev          # Start Convex backend (separate terminal)
 ```
 
@@ -79,6 +79,7 @@ content script → background worker → Convex action (omdb:lookup) → OMDb
 - The OMDb key lives in the Convex deployment (`npx convex env set OMDB_API_KEY <key>`), never in the extension bundle.
 - Both cache layers key on a normalized title (`buildLookupKey` in `src/shared/utils/text.ts`, mirrored by `lookupKey` in `convex/omdbParse.ts` — **keep these two in sync**, or the caches will disagree about what counts as the same title).
 - Negative results are cached too. Streaming sites show plenty of titles OMDb can't match, and without this each SPA navigation would re-query.
+- **Only a genuine miss is cached as one.** `classifyOmdbFailure` reads both the status and the body, because neither is sufficient alone: OMDb returns 401 for a wrong key *and* an exhausted quota, and a body whose `Error` we don't recognise must not be read as "no such title" — that verdict gets cached and outlives its cause. Anything unfamiliar is treated as transient and retried (3 attempts, backing off), then surfaced with OMDb's own wording rather than a bare status.
 - The extension addresses backend functions by string (`makeFunctionReference("omdb:lookup")`) rather than the generated `api` object, so renaming a Convex function is a runtime break, not a compile error.
 
 ### AI Review Scoring (Phase 3)

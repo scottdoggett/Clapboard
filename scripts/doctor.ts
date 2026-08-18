@@ -128,8 +128,43 @@ if (!envList.includes("OMDB_API_KEY")) {
     "Not set on the deployment — every ratings lookup will throw",
     "npx convex env set OMDB_API_KEY <key>   (free at omdbapi.com/apikey.aspx)"
   );
+} else if (!deploymentUrl) {
+  report("warn", "OMDb key", "set, but no deployment to test it against");
 } else {
-  report("ok", "OMDb key", "set on the deployment");
+  // Set is not the same as working. A real lookup is the only way to tell a
+  // good key from a typo, and it costs one request against a 1,000/day tier —
+  // then it's cached, so repeat runs of the doctor are free.
+  const lookup = run("npx", [
+    "convex",
+    "run",
+    "omdb:lookup",
+    JSON.stringify({ title: "Inception", year: 2010, type: "movie" }),
+  ]);
+
+  if (lookup === null) {
+    // The CLI writes the thrown message to stderr, which `run` swallows, so
+    // re-run capturing both streams to show what actually went wrong
+    let detail = "a lookup failed";
+    try {
+      execFileSync("npx", ["convex", "run", "omdb:lookup", '{"title":"Inception"}'], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      const output = String((error as { stderr?: string }).stderr ?? "");
+      const thrown = /Uncaught Error: (.+)/.exec(output)?.[1];
+      if (thrown) detail = thrown.trim();
+    }
+    report("fail", "OMDb key", detail, "npx convex env set OMDB_API_KEY <key>");
+  } else if (lookup.includes("imdbId")) {
+    report("ok", "OMDb key", "works — test lookup returned ratings");
+  } else {
+    report(
+      "warn",
+      "OMDb key",
+      "accepted, but the test lookup found no match — unexpected for a known title"
+    );
+  }
 }
 
 const hasAnthropicKey = envList.includes("ANTHROPIC_API_KEY");
