@@ -250,6 +250,7 @@ export const STORAGE_KEYS = {
   SETTINGS: "clapboard_settings",
   CACHE: "clapboard_cache",
   AI_SCORES: "clapboard_ai_scores",
+  CLIENT_ID: "clapboard_client_id",
   USER: "clapboard_user",
 } as const;
 

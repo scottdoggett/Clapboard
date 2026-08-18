@@ -12,7 +12,10 @@ import {
   evaluateBudget,
   isPendingLive,
   runLogCutoff,
+  CLIENT_RUN_BUDGET,
+  RUN_BUDGET,
   PENDING_TIMEOUT_MS,
+  type BudgetVerdict,
 } from "./aiScoresParse";
 
 /**
@@ -119,9 +122,11 @@ export const getCachedScores = internalQuery({
 export const claimScoringRun = internalMutation({
   args: {
     movieId: v.id("movies"),
+    clientId: v.string(),
   },
-  handler: async (ctx, { movieId }) => {
+  handler: async (ctx, { movieId, clientId }) => {
     const now = Date.now();
+    const cutoff = runLogCutoff(now);
 
     const existing = await ctx.db
       .query("aiScores")
@@ -136,21 +141,48 @@ export const claimScoringRun = internalMutation({
       return { claimed: false as const, reason: "pending" as const };
     }
 
-    // Only runs inside the longest window can affect the verdict
+    // The caller's own allowance first. Checking this before the global one
+    // means a heavy user is told they've hit their share, rather than being
+    // told the deployment is busy because of themselves.
+    const ownRuns = await ctx.db
+      .query("scoringRuns")
+      .withIndex("by_client_and_started_at", (q) =>
+        q.eq("clientId", clientId).gte("startedAt", cutoff)
+      )
+      .collect();
+
+    const ownVerdict = evaluateBudget(
+      ownRuns.map((run) => run.startedAt),
+      now,
+      CLIENT_RUN_BUDGET
+    );
+
+    if (!ownVerdict.allowed) {
+      return {
+        claimed: false as const,
+        reason: "budget" as const,
+        scope: "client" as const,
+        retryAfterMs: ownVerdict.retryAfterMs,
+      };
+    }
+
+    // Then the deployment's, which protects the bill
     const recent = await ctx.db
       .query("scoringRuns")
-      .withIndex("by_started_at", (q) => q.gte("startedAt", runLogCutoff(now)))
+      .withIndex("by_started_at", (q) => q.gte("startedAt", cutoff))
       .collect();
 
     const verdict = evaluateBudget(
       recent.map((run) => run.startedAt),
-      now
+      now,
+      RUN_BUDGET
     );
 
     if (!verdict.allowed) {
       return {
         claimed: false as const,
         reason: "budget" as const,
+        scope: "deployment" as const,
         retryAfterMs: verdict.retryAfterMs,
       };
     }
@@ -172,13 +204,13 @@ export const claimScoringRun = internalMutation({
       await ctx.db.insert("aiScores", claim);
     }
 
-    await ctx.db.insert("scoringRuns", { startedAt: now });
+    await ctx.db.insert("scoringRuns", { startedAt: now, clientId });
 
     // Prune on write — these rows are only ever read as a rolling window, so
     // anything past it is dead weight
     const stale = await ctx.db
       .query("scoringRuns")
-      .withIndex("by_started_at", (q) => q.lt("startedAt", runLogCutoff(now)))
+      .withIndex("by_started_at", (q) => q.lt("startedAt", cutoff))
       .collect();
 
     for (const run of stale) {
@@ -221,9 +253,13 @@ export const releaseScoringRun = internalMutation({
  * a spend ceiling nobody can see is one nobody trusts.
  */
 export const getBudgetStatus = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    /** Report this installation's own share alongside the deployment's */
+    clientId: v.optional(v.string()),
+  },
+  handler: async (ctx, { clientId }) => {
     const now = Date.now();
+    const hourAgo = now - 60 * 60 * 1000;
 
     const recent = await ctx.db
       .query("scoringRuns")
@@ -231,13 +267,39 @@ export const getBudgetStatus = query({
       .collect();
 
     const startTimes = recent.map((run) => run.startedAt);
-    const verdict = evaluateBudget(startTimes, now);
+    const verdict = evaluateBudget(startTimes, now, RUN_BUDGET);
+
+    const ownTimes = clientId
+      ? recent.filter((run) => run.clientId === clientId).map((run) => run.startedAt)
+      : [];
+    const ownVerdict: BudgetVerdict = clientId
+      ? evaluateBudget(ownTimes, now, CLIENT_RUN_BUDGET)
+      : { allowed: true };
+
+    // Report the wait for whichever ceiling actually binds — saying "not
+    // allowed, retry in 0ms" because only the other one was consulted is worse
+    // than useless
+    const retryAfterMs = Math.max(
+      verdict.allowed ? 0 : verdict.retryAfterMs,
+      ownVerdict.allowed ? 0 : ownVerdict.retryAfterMs
+    );
 
     return {
-      runsLastHour: startTimes.filter((t) => now - t < 60 * 60 * 1000).length,
+      runsLastHour: startTimes.filter((t) => t >= hourAgo).length,
       runsLastDay: startTimes.length,
-      allowed: verdict.allowed,
-      retryAfterMs: verdict.allowed ? 0 : verdict.retryAfterMs,
+      limitPerHour: RUN_BUDGET.perHour,
+      limitPerDay: RUN_BUDGET.perDay,
+      allowed: verdict.allowed && ownVerdict.allowed,
+      retryAfterMs,
+      client: clientId
+        ? {
+            runsLastHour: ownTimes.filter((t) => t >= hourAgo).length,
+            runsLastDay: ownTimes.length,
+            limitPerHour: CLIENT_RUN_BUDGET.perHour,
+            limitPerDay: CLIENT_RUN_BUDGET.perDay,
+            allowed: ownVerdict.allowed,
+          }
+        : null,
     };
   },
 });

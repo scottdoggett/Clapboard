@@ -45,7 +45,13 @@ const lookupRef = makeFunctionReference<
 
 const aiScoresRef = makeFunctionReference<
   "action",
-  { movieId: string; title: string; year?: number; type?: "movie" | "series" },
+  {
+    movieId: string;
+    title: string;
+    year?: number;
+    type?: "movie" | "series";
+    clientId: string;
+  },
   AiScoreOutcome
 >("aiScores:generate");
 
@@ -116,18 +122,26 @@ export async function lookupMovie(
  * @param title - Canonical title, as resolved by the ratings lookup
  * @param year - Release year, when known
  * @param type - Content type hint
+ * @param clientId - Anonymous installation id, for the per-installation budget
  * @returns One of four outcomes — scored, unavailable, pending, or rate limited
  */
 export async function requestAiScores(
   url: string,
   movieId: string,
   title: string,
-  year?: number,
-  type?: "movie" | "series"
+  year: number | undefined,
+  type: "movie" | "series" | undefined,
+  clientId: string
 ): Promise<AiScoreOutcome> {
   const convex = getConvexClient(url);
 
-  return await convex.action(aiScoresRef, { movieId, title, year, type });
+  return await convex.action(aiScoresRef, {
+    movieId,
+    title,
+    year,
+    type,
+    clientId,
+  });
 }
 
 /**

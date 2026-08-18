@@ -19,6 +19,7 @@ import {
   SCORE_CATEGORIES,
   SCORE_TOOL_SCHEMA,
   RUN_BUDGET,
+  CLIENT_RUN_BUDGET,
   PENDING_TIMEOUT_MS,
   type AiScoreResult,
 } from "../convex/aiScoresParse";
@@ -315,6 +316,31 @@ check(
   false
 );
 check("run log cutoff is one day back", runLogCutoff(NOW), NOW - DAY);
+
+// --- Per-installation ceiling ---------------------------------------------
+// The deployment budget protects the bill; this protects everyone else from
+// whoever browses hardest.
+
+check(
+  "a client's own ceiling is lower than the deployment's",
+  CLIENT_RUN_BUDGET.perHour < RUN_BUDGET.perHour &&
+    CLIENT_RUN_BUDGET.perDay < RUN_BUDGET.perDay,
+  true
+);
+
+// A client at its own ceiling is refused while the deployment still has room —
+// which is the whole point: their share is spent, everyone else's isn't
+const clientSpent = runs(CLIENT_RUN_BUDGET.perHour, 30 * MINUTE, MINUTE);
+check(
+  "a client at its ceiling is refused",
+  evaluateBudget(clientSpent, NOW, CLIENT_RUN_BUDGET).allowed,
+  false
+);
+check(
+  "...while the deployment still has room",
+  evaluateBudget(clientSpent, NOW, RUN_BUDGET),
+  { allowed: true }
+);
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

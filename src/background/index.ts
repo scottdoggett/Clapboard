@@ -24,6 +24,7 @@ import {
   setCachedMovieData,
   getCachedAiScores,
   setCachedAiScores,
+  getClientId,
   clearCache,
   getCacheSize,
   DEFAULT_SETTINGS,
@@ -238,7 +239,8 @@ async function handleAiScoreRequest(payload: {
     payload.movieId,
     payload.title,
     payload.year,
-    payload.type
+    payload.type,
+    await getClientId()
   );
 
   // Only settled outcomes are worth remembering. Caching "pending" or "rate

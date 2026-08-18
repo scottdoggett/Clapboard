@@ -205,8 +205,10 @@ Each platform requires custom DOM selectors to detect which title the user is vi
 Scoring is **off by default** (`FEATURES.AI_SCORES_ENABLED` in
 `src/shared/constants.ts`). Each run costs a web search and a model call, so
 there are three guards: the overlay asks only when you open the AI section,
-both successes and failures are cached, and the deployment has a hard ceiling
-of 20 runs an hour / 100 a day (`RUN_BUDGET` in `convex/aiScoresParse.ts`).
+both successes and failures are cached, and there are two ceilings
+(`convex/aiScoresParse.ts`): 20 runs an hour / 100 a day per deployment, and
+8 an hour / 30 a day per installation so one heavy user can't spend everyone's
+share.
 
 Check what's left of the budget at any time:
 

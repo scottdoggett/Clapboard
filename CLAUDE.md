@@ -63,6 +63,8 @@ Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patt
 
 ### Backend
 
+The extension sends an anonymous per-installation id (`getClientId` in `src/shared/utils/storage.ts`) with scoring requests. It's a random UUID, stored only in the extension's own storage, sent only to the configured deployment, and exists solely so the scoring budget can tell installations apart.
+
 **Convex** (`convex/`) provides the database with tables: `movies`, `ratings`, `reviews`, `awards`, `aiScores`, `scoringRuns`, `users`, `lookups`. Schema in `convex/schema.ts`. Ratings are stored per-source (IMDb, RT, Metacritic, Letterboxd) with their native scales.
 
 ### Data Flow
@@ -99,7 +101,8 @@ The roadmap called for scraping reviews and then analyzing them. It does both in
 - **Cost is the design constraint**, and there are three separate guards:
   1. The overlay requests scores only when the user opens the AI section, never on page load.
   2. *Failures are cached too* — a title with too few reviews must not re-run on every view.
-  3. A deployment-wide ceiling (`RUN_BUDGET` in `aiScoresParse.ts`: 20/hour, 100/day). The per-title caches can't bound this — every new title is a legitimate cache miss, and one scroll down a Netflix row is dozens of them.
+  3. Two ceilings (`aiScoresParse.ts`): `RUN_BUDGET` per deployment (20/hour, 100/day) protects the bill, and `CLIENT_RUN_BUDGET` per installation (8/hour, 30/day) stops one heavy user spending everyone's share. The per-title caches can't bound either — every new title is a legitimate cache miss, and one scroll down a Netflix row is dozens of them.
+  The client's own ceiling is checked first, so a heavy user is told they've hit *their* share rather than that the deployment is busy because of themselves.
 - **`aiScoresDb:claimScoringRun` is the only gate on spending.** It checks the budget *and* reserves the title in one Convex mutation, which is transactional — doing the check in the action would leave a race, and the thing being raced for costs money. A claim writes a `pending` row so two tabs on the same title don't both pay; a claim whose action dies expires after `PENDING_TIMEOUT_MS` rather than stranding the title.
 - `generate` returns a **four-way outcome** (`scored` / `unavailable` / `pending` / `rateLimited`), not scores-or-null. The overlay says something different for each, and the background worker caches only the two settled ones — caching "pending" would pin the card to a state that has already passed.
 - `aiScoresDb:getBudgetStatus` is public so the remaining budget can be checked from the CLI or the popup.
@@ -147,6 +150,6 @@ Phase 3 (AI review scoring) is implemented, and everything except the model call
 Known gaps in the current phases:
 - Letterboxd is in the `RatingSource` union and the UI but has no provider — OMDb doesn't carry it and there's no public API.
 - Awards come from OMDb's free-text summary, so they're counts ("4 Oscars") rather than categories ("Best Picture").
-- The AI scoring ceiling is **per deployment, not per user** — there are no user accounts yet (Phase 4), so it can't be anything else. One person can spend the whole budget and lock everyone else out until the window rolls.
+- The per-installation scoring ceiling keys on an anonymous id in `chrome.storage`, so it bounds *installations*, not people. Clearing extension storage resets it. That's the most that can be done before Phase 4 brings real accounts, and it's enough for the thing it's for — stopping ordinary heavy browsing from locking others out, not defeating someone deliberately trying to.
 - `convex/reviews.ts` still holds the original per-review scoring stubs. Nothing calls them now — the web-search path replaced them — but `aggregateScores` in `aiScoresParse.ts` is the averaging half of that design if per-review scoring ever comes back.
 - The platform DOM selectors in `SUPPORTED_SITES` are still unverified against the live sites. `verify:dom` covers the detection machinery, but the selector *strings* are educated guesses until someone checks them with an account on each platform. The URL gate and the metadata fallbacks mean a stale selector degrades rather than breaks — the overlay falls back to JSON-LD or the page title instead of showing the wrong thing.

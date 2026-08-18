@@ -67,6 +67,33 @@ export async function updateSettings(
 }
 
 /**
+ * Get this installation's anonymous id, creating one on first use.
+ *
+ * It exists for one purpose: the backend's scoring budget needs to tell one
+ * installation's requests from another's, so a single heavy user can't spend
+ * the whole deployment's allowance and lock everyone else out.
+ *
+ * It's a random UUID with nothing derived from the user or the machine, it
+ * lives in this extension's own storage, and it goes nowhere except the Convex
+ * deployment the user configured.
+ *
+ * @returns The stable installation id
+ */
+export async function getClientId(): Promise<string> {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.CLIENT_ID);
+  const existing = stored[STORAGE_KEYS.CLIENT_ID] as string | undefined;
+
+  if (typeof existing === "string" && existing.length > 0) {
+    return existing;
+  }
+
+  const clientId = crypto.randomUUID();
+  await chrome.storage.local.set({ [STORAGE_KEYS.CLIENT_ID]: clientId });
+
+  return clientId;
+}
+
+/**
  * Read a cached movie lookup.
  *
  * Returns `undefined` on a miss and `{ data: null }` for a cached negative

@@ -186,10 +186,12 @@ export const generate = action({
     title: v.string(),
     year: v.optional(v.number()),
     type: v.optional(contentType),
+    /** Anonymous per-installation id, so one user can't spend everyone's share */
+    clientId: v.string(),
   },
   handler: async (
     ctx,
-    { movieId, title, year, type }
+    { movieId, title, year, type, clientId }
   ): Promise<AiScoreOutcome> => {
     const cached = await ctx.runQuery(internal.aiScoresDb.getCachedScores, {
       movieId,
@@ -219,11 +221,15 @@ export const generate = action({
     // concurrent requests can't both get through.
     const claim = await ctx.runMutation(internal.aiScoresDb.claimScoringRun, {
       movieId,
+      clientId,
     });
 
     if (!claim.claimed) {
       if (claim.reason === "budget") {
-        console.warn("[Clapboard] Scoring budget exhausted for:", title);
+        console.warn(
+          `[Clapboard] Scoring budget exhausted (${claim.scope}) for:`,
+          title
+        );
         return { status: "rateLimited", retryAfterMs: claim.retryAfterMs ?? 0 };
       }
       return { status: "pending" };

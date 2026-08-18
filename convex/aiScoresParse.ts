@@ -325,6 +325,27 @@ export const RUN_BUDGET = {
   perDay: 100,
 } as const;
 
+/**
+ * The same ceiling, per installation.
+ *
+ * The deployment-wide budget protects the bill; this protects everyone else
+ * sharing the deployment from whoever hits it first. Without it, one browse
+ * session exhausts the global allowance and every other user sees "scoring
+ * limit reached" for an hour through no fault of their own.
+ *
+ * Deliberately well under the global figures — several people should be able
+ * to use their share concurrently without anyone reaching the global ceiling.
+ */
+export const CLIENT_RUN_BUDGET = {
+  perHour: 8,
+  perDay: 30,
+} as const;
+
+export interface RunLimits {
+  readonly perHour: number;
+  readonly perDay: number;
+}
+
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
@@ -350,9 +371,14 @@ export type BudgetVerdict =
  *
  * @param runStartTimes - Start times of prior runs, any order, may include old ones
  * @param now - Current time in ms
+ * @param limits - Ceilings to apply; defaults to the deployment-wide budget
  * @returns Whether a run is allowed, and if not, how long until one is
  */
-export function evaluateBudget(runStartTimes: number[], now: number): BudgetVerdict {
+export function evaluateBudget(
+  runStartTimes: number[],
+  now: number,
+  limits: RunLimits = RUN_BUDGET
+): BudgetVerdict {
   const inHour: number[] = [];
   const inDay: number[] = [];
 
@@ -367,12 +393,10 @@ export function evaluateBudget(runStartTimes: number[], now: number): BudgetVerd
   // Whichever ceiling is hit first decides, and the wait is until the oldest
   // run in that window falls out of it
   const hourWait =
-    inHour.length >= RUN_BUDGET.perHour
-      ? Math.min(...inHour) + HOUR_MS - now
-      : 0;
+    inHour.length >= limits.perHour ? Math.min(...inHour) + HOUR_MS - now : 0;
 
   const dayWait =
-    inDay.length >= RUN_BUDGET.perDay ? Math.min(...inDay) + DAY_MS - now : 0;
+    inDay.length >= limits.perDay ? Math.min(...inDay) + DAY_MS - now : 0;
 
   const retryAfterMs = Math.max(hourWait, dayWait);
 
