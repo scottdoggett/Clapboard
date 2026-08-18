@@ -210,6 +210,46 @@ export function normalizeAwardName(phrase: string): string {
  * @param summary - The raw OMDb Awards string
  * @param year - Release year, used as the award year (OMDb doesn't give one)
  */
+/**
+ * Pull the headline totals out of OMDb's awards sentence.
+ *
+ * "Won 4 Oscars. 159 wins & 220 nominations total." carries two numbers worth
+ * keeping even once a richer source names the individual awards: OMDb counts
+ * festivals and minor awards that Wikidata's coverage misses, so the totals
+ * are the honest "and this many more".
+ *
+ * The headline count is included in OMDb's own totals, so it is not added on.
+ *
+ * @param summary - OMDb's `Awards` field
+ * @returns Total wins and nominations, zero when unstated
+ */
+export function parseAwardTotals(summary: string | undefined): {
+  wins: number;
+  nominations: number;
+} {
+  const raw = present(summary);
+  if (!raw) return { wins: 0, nominations: 0 };
+
+  const totalWins = raw.match(/(\d+)\s+wins?/i);
+  const totalNominations = raw.match(/(\d+)\s+nominations?/i);
+
+  let wins = totalWins ? parseInt(totalWins[1], 10) : 0;
+  let nominations = totalNominations ? parseInt(totalNominations[1], 10) : 0;
+
+  // Some summaries only carry the headline: "Won 4 Oscars." with no totals
+  const headline = raw.match(/^(Won|Nominated for)\s+(\d+)/i);
+  if (headline) {
+    const count = parseInt(headline[2], 10);
+    if (/^won$/i.test(headline[1])) {
+      wins = Math.max(wins, count);
+    } else {
+      nominations = Math.max(nominations, count);
+    }
+  }
+
+  return { wins, nominations };
+}
+
 export function parseAwards(
   summary: string | undefined,
   year: number

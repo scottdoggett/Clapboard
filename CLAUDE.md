@@ -12,6 +12,7 @@ npm run verify:parsers  # Check OMDb response parsers against known payloads
 npm run verify:detection # Check the title-detection logic against known URLs and title strings
 npm run verify:ai-scores # Check the AI score parser and spend guard
 npm run verify:dom      # Run title detection against fixture pages in jsdom
+npm run verify:awards   # Check the Wikidata award parser against a recorded response
 npm run doctor          # Preflight: deployment, live key check, feature flags, bundle freshness
 npx convex dev          # Start Convex backend (separate terminal)
 ```
@@ -69,6 +70,13 @@ The extension sends an anonymous per-installation id (`getClientId` in `src/shar
 
 ### Data Flow
 
+Two providers, both server-side only:
+
+| Data | Source | Key needed |
+|---|---|---|
+| Ratings (IMDb, RT, Metacritic), metadata, award totals | OMDb | yes, free, 1,000/day |
+| Named awards with categories and win/nomination | Wikidata Query Service | no |
+
 Ratings originate from **OMDb**, and only the backend talks to it:
 
 ```
@@ -83,6 +91,17 @@ content script → background worker → Convex action (omdb:lookup) → OMDb
 - Negative results are cached too. Streaming sites show plenty of titles OMDb can't match, and without this each SPA navigation would re-query.
 - **Only a genuine miss is cached as one.** `classifyOmdbFailure` reads both the status and the body, because neither is sufficient alone: OMDb returns 401 for a wrong key *and* an exhausted quota, and a body whose `Error` we don't recognise must not be read as "no such title" — that verdict gets cached and outlives its cause. Anything unfamiliar is treated as transient and retried (3 attempts, backing off), then surfaced with OMDb's own wording rather than a bare status.
 - The extension addresses backend functions by string (`makeFunctionReference("omdb:lookup")`) rather than the generated `api` object, so renaming a Convex function is a runtime break, not a compile error.
+
+### Awards (Wikidata)
+
+OMDb reports awards as one sentence — "Won 4 Oscars. 159 wins & 220 nominations total." — which gives counts and no categories. Wikidata models each award as a statement, so the same film yields "Academy Award for Best Cinematography, won, 2011" per award. Films carry their IMDb ID as property `P345`, so the id OMDb already returns is enough to find the entity: no key, no account.
+
+- `convex/wikidata.ts` fetches; `convex/wikidataParse.ts` holds the query builder, the label splitter, and the merge, free of Convex imports for `npm run verify:awards`.
+- Wins are `P166` (award received), nominations `P1411` (nominated for) — two properties, so the query is a UNION over both.
+- **Enrichment must never fail a lookup.** Every error path returns an empty list and the card falls back to OMDb's counts. A title with ratings and no award detail is fine; a title with no ratings because a shared public SPARQL endpoint was busy is not.
+- **WDQS throttles hard** — a 429 is routine. One retry honours `Retry-After` when it's short enough to be worth a waiting user; otherwise it gives up quietly.
+- Wikimedia blocks anonymous clients, so the descriptive `User-Agent` in `wikidata.ts` is required, not politeness.
+- The two sources answer different questions and neither replaces the other: Wikidata names the major awards but its coverage of minor festivals is patchy, OMDb knows the totals but not what for. `mergeAwards` lists the named ones and reduces OMDb's totals by what's shown, so the same Oscar isn't counted twice.
 
 ### AI Review Scoring (Phase 3)
 
@@ -148,8 +167,8 @@ Phase 1 (Ratings Overlay) and Phase 2 (Awards) are implemented end to end: title
 Phase 3 (AI review scoring) is implemented, and everything except the model call itself has now been exercised against a live deployment: the schema deploys, and `claimScoringRun` was driven through claim → pending-dedup → release → budget exhaustion via `npx convex run`. What remains unproven is the Claude call — that needs an `ANTHROPIC_API_KEY` and `FEATURES.AI_SCORES_ENABLED` flipped on. Phase 4 (user accounts/Clerk auth) is still stubbed.
 
 Known gaps in the current phases:
-- Letterboxd is in the `RatingSource` union and the UI but has no provider — OMDb doesn't carry it and there's no public API.
-- Awards come from OMDb's free-text summary, so they're counts ("4 Oscars") rather than categories ("Best Picture").
+- Letterboxd is in the `RatingSource` union and the UI but has no provider. Letterboxd's own API is approval-only; **MDBList** (`api.mdblist.com/imdb/movie/{imdbId}`) is the realistic route — it aggregates IMDb, RT, Metacritic, Trakt and Letterboxd in one call on a free 1,000/day tier — but it needs an account and a key, so it's unimplemented and unverified.
+- Wikidata's award coverage is good for the Oscars, Globes, BAFTAs and Emmys and thin for minor festivals, so the "and N more" remainder does most of the work on lesser-known titles. It's also crowd-maintained: a wrong award on a film is a wrong award in the overlay.
 - The per-installation scoring ceiling keys on an anonymous id in `chrome.storage`, so it bounds *installations*, not people. Clearing extension storage resets it. That's the most that can be done before Phase 4 brings real accounts, and it's enough for the thing it's for — stopping ordinary heavy browsing from locking others out, not defeating someone deliberately trying to.
 - `convex/reviews.ts` still holds the original per-review scoring stubs. Nothing calls them now — the web-search path replaced them — but `aggregateScores` in `aiScoresParse.ts` is the averaging half of that design if per-review scoring ever comes back.
 - The platform DOM selectors in `SUPPORTED_SITES` are still unverified against the live sites. `verify:dom` covers the detection machinery, but the selector *strings* are educated guesses until someone checks them with an account on each platform. The URL gate and the metadata fallbacks mean a stale selector degrades rather than breaks — the overlay falls back to JSON-LD or the page title instead of showing the wrong thing.

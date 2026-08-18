@@ -21,8 +21,11 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { fetchWikidataAwards } from "./wikidata";
+import { mergeAwards } from "./wikidataParse";
 import {
   lookupKey,
+  parseAwardTotals,
   parseOmdbResponse,
   classifyOmdbFailure,
   isRetryable,
@@ -459,6 +462,34 @@ async function resolveFromOmdb(
 }
 
 /**
+ * Replace OMDb's award counts with named awards where Wikidata has them.
+ *
+ * The two sources answer different questions: Wikidata names the major awards
+ * but its coverage of minor festivals is patchy, while OMDb knows the totals
+ * and nothing else. So the named awards are listed and OMDb's totals are
+ * reduced by what's already shown, giving "and N more" rather than counting
+ * the same Oscar twice.
+ *
+ * @param parsed - The parsed OMDb response
+ * @param awardsSummary - OMDb's raw `Awards` sentence
+ * @returns Awards to persist — OMDb's own list when Wikidata has nothing
+ */
+async function enrichAwards(
+  parsed: ReturnType<typeof parseOmdbResponse>,
+  awardsSummary: string | undefined
+): Promise<ReturnType<typeof parseOmdbResponse>["awards"]> {
+  const imdbId = parsed.movie.imdbId;
+  if (!imdbId) return parsed.awards;
+
+  const year = parsed.movie.year ?? new Date().getFullYear();
+  const named = await fetchWikidataAwards(imdbId, year);
+
+  if (named.length === 0) return parsed.awards;
+
+  return mergeAwards(named, parseAwardTotals(awardsSummary), year);
+}
+
+/**
  * Look up a title's ratings and awards.
  *
  * Serves from the Convex cache when fresh, otherwise fetches from OMDb and
@@ -511,11 +542,17 @@ export const lookup = action({
 
     const parsed = parseOmdbResponse(result.data);
 
+    // OMDb reports awards as counts — "Won 4 Oscars" — with no way to say what
+    // for. Wikidata models each award as its own statement, so it can name
+    // them. It's supplementary and never allowed to fail the lookup, so an
+    // empty result here just means the card shows OMDb's counts as before.
+    const awards = await enrichAwards(parsed, result.data.Awards);
+
     return await ctx.runMutation(internal.omdb.persistLookup, {
       key,
       movie: parsed.movie,
       ratings: parsed.ratings,
-      awards: parsed.awards,
+      awards,
     });
   },
 });

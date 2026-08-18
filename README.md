@@ -30,6 +30,7 @@ Clapboard overlays a lightweight card on supported streaming sites that shows:
 | Bundler | esbuild (`scripts/build.ts`) |
 | Backend | Convex |
 | Ratings source | OMDb API (fetched server-side, cached in Convex) |
+| Awards source | Wikidata Query Service (SPARQL, no key) |
 | Review scoring | Claude (Opus 5) with server-side web search, via Convex |
 | Styling | Tailwind CSS 3 |
 | Package Manager | npm |
@@ -150,6 +151,9 @@ npm run verify:detection
 # Check the AI score parser and the scoring spend guard
 npm run verify:ai-scores
 
+# Check the Wikidata award parser against a recorded response
+npm run verify:awards
+
 # Run title detection against fixture streaming pages in jsdom
 npm run verify:dom
 ```
@@ -183,8 +187,8 @@ Each platform requires custom DOM selectors to detect which title the user is vi
 ### Phase 2 — Awards & Recognition
 - ✅ Surface Oscar, Golden Globe, BAFTA, and other major award data
 - ✅ Show wins vs. nominations at a glance
-- ⬜ Per-category awards ("Best Picture") — OMDb only reports counts, so this
-  needs a richer awards source
+- ✅ Per-category awards ("Best Cinematography") — from Wikidata, which models
+  each award as a statement rather than OMDb's free-text counts. No API key
 - ⬜ Highlight award-winning content as users browse
 
 ### Phase 3 — AI-Powered Review Scoring
