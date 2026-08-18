@@ -24,6 +24,7 @@ import {
 } from "@shared/utils/dom";
 import { STORAGE_KEYS } from "@shared/constants";
 import { getSettings } from "@shared/utils/storage";
+import { watchNavigation } from "./navigation";
 
 /**
  * The compiled overlay stylesheet, inlined at build time.
@@ -51,6 +52,9 @@ let checkGeneration = 0;
 
 // How long to wait for a detail view to render after the URL says it should
 const TITLE_RENDER_TIMEOUT_MS = 5000;
+
+// Collapses the several URL rewrites a router can emit for one navigation
+const NAVIGATION_DEBOUNCE_MS = 150;
 
 /**
  * Initialize the content script
@@ -82,47 +86,26 @@ async function init(): Promise<void> {
   });
 
   // Set up URL change detection (for SPAs)
-  observeUrlChanges();
+  watchNavigation(onUrlChange);
 
   // Initial check for title display
   await checkForTitle();
 }
 
 /**
- * Observe URL changes for SPA navigation
- */
-function observeUrlChanges(): void {
-  let lastUrl = window.location.href;
-
-  // Use MutationObserver to detect DOM changes that might indicate navigation
-  const observer = new MutationObserver(() => {
-    if (window.location.href !== lastUrl) {
-      lastUrl = window.location.href;
-      onUrlChange();
-    }
-  });
-
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
-
-  // Also listen for popstate (back/forward navigation)
-  window.addEventListener("popstate", onUrlChange);
-}
-
-/**
  * Handle URL changes
  */
 function onUrlChange(): void {
-  // Debounce to avoid rapid fire during navigation
+  // Coalesce the burst of URL rewrites a router can emit for one navigation.
+  // Short, because it isn't the thing that waits for the page to render —
+  // checkForTitle does that itself via waitForTitlePage.
   if (urlCheckTimer) {
     clearTimeout(urlCheckTimer);
   }
 
   urlCheckTimer = setTimeout(() => {
     void checkForTitle();
-  }, 500);
+  }, NAVIGATION_DEBOUNCE_MS);
 }
 
 /**

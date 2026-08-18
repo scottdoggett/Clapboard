@@ -18,6 +18,9 @@
  * module cache) because it captures `location.href` at module load to decide
  * whether document metadata is still trustworthy.
  *
+ * The second half covers the SPA navigation watcher, which is the other piece
+ * that only exists because these sites never reload.
+ *
  * Run with: npm run verify:dom
  */
 
@@ -326,6 +329,91 @@ check(
   );
   check("isOnTitlePage rejects browse", mod.isOnTitlePage(), false);
   check("no anchor when nothing matches", mod.getOverlayAnchor(), null);
+}
+
+// --- SPA navigation watching -----------------------------------------------
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Set up a jsdom page and start a watcher over it with a fast poll. */
+async function watchPage(url: string) {
+  const dom = new JSDOM("<body></body>", { url });
+  const g = globalThis as Record<string, unknown>;
+  g.window = dom.window;
+  g.document = dom.window.document;
+
+  const seen: string[] = [];
+  const { watchNavigation } = await import(`../src/content/navigation?v=${++fixtureCount}`);
+  const watcher = watchNavigation((next: string) => seen.push(next), {
+    pollIntervalMs: 10,
+  });
+
+  return { dom, seen, watcher };
+}
+
+{
+  // The case the old MutationObserver missed outright: a pushState that
+  // doesn't mutate the DOM was invisible until unrelated churn woke it up
+  const { dom, seen, watcher } = await watchPage("https://www.netflix.com/browse");
+
+  dom.window.history.pushState({}, "", "/title/81234567");
+  await sleep(40);
+
+  check("a pushState with no DOM change is caught", seen, [
+    "https://www.netflix.com/title/81234567",
+  ]);
+
+  // Real navigation, real work in response — the same URL must not re-fire
+  await sleep(40);
+  check("a settled URL does not re-fire", seen.length, 1);
+
+  dom.window.history.pushState({}, "", "/title/99999999");
+  await sleep(40);
+  check("a second navigation fires again", seen.length, 2);
+
+  watcher.stop();
+  dom.window.history.pushState({}, "", "/title/11111111");
+  await sleep(40);
+  check("a stopped watcher goes quiet", seen.length, 2);
+}
+
+{
+  // Back/forward shouldn't wait out a poll interval
+  const { dom, seen, watcher } = await watchPage("https://www.netflix.com/title/1");
+
+  dom.window.history.pushState({}, "", "/title/2");
+  dom.window.dispatchEvent(new dom.window.Event("popstate"));
+
+  check("popstate is handled without waiting for the poll", seen, [
+    "https://www.netflix.com/title/2",
+  ]);
+  watcher.stop();
+}
+
+{
+  // A hidden tab can't be navigated by the user; polling it is wasted work,
+  // but the change must not be lost when it comes back
+  const { dom, seen, watcher } = await watchPage("https://www.netflix.com/browse");
+
+  Object.defineProperty(dom.window.document, "visibilityState", {
+    configurable: true,
+    get: () => "hidden",
+  });
+
+  dom.window.history.pushState({}, "", "/title/81234567");
+  await sleep(40);
+  check("a hidden tab is not polled", seen.length, 0);
+
+  Object.defineProperty(dom.window.document, "visibilityState", {
+    configurable: true,
+    get: () => "visible",
+  });
+  dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+
+  check("becoming visible catches up immediately", seen, [
+    "https://www.netflix.com/title/81234567",
+  ]);
+  watcher.stop();
 }
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);

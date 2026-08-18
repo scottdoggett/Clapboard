@@ -135,7 +135,7 @@ Defined in both `tsconfig.json` and the esbuild alias plugin:
 - TypeScript strict mode with `noUnusedLocals` and `noUnusedParameters`
 - Feature flags in `src/shared/constants.ts` (`FEATURES`) control phased rollout
 - Console logs prefixed with `[Clapboard]` for filtering in DevTools
-- Content script uses MutationObserver + popstate listener for SPA navigation detection
+- Content script watches for SPA navigation by polling `location.href` (`src/content/navigation.ts`), not with a MutationObserver. A content script runs in an isolated world, so patching the page's `history.pushState` is not an option — and a body-subtree observer both costs more and misses any `pushState` that doesn't happen to mutate the DOM
 
 ## Current Phase
 
