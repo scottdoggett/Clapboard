@@ -276,6 +276,42 @@ function detectContentType(site: SupportedSite): "movie" | "series" | undefined 
 }
 
 /**
+ * Where the overlay should be spliced into the page's own layout.
+ *
+ * Returning null means this platform has no verified splice point and the
+ * overlay falls back to floating — which is the honest answer for the three
+ * sites whose structure has never been checked against reality.
+ *
+ * @returns The reference element and which side to insert on, or null
+ */
+export function getInlineTarget(): {
+  reference: Element;
+  placement: "before" | "after";
+} | null {
+  const site = detectSite();
+  if (!site) return null;
+
+  const inline = SUPPORTED_SITES[site].selectors.inline;
+  if (!inline) return null;
+
+  for (const selector of inline.anchor) {
+    const anchor = safeQuerySelector(selector);
+    if (!anchor) continue;
+
+    // The element identifying the spot is often nested inside the one that
+    // occupies the layout slot; insert next to the outer one
+    const lifted = inline.lift ? anchor.closest(inline.lift) : null;
+    const reference = lifted ?? anchor;
+
+    if (reference.parentElement) {
+      return { reference, placement: inline.placement };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Get the best anchor element for positioning the overlay
  *
  * @returns DOM element to anchor the overlay to, or null

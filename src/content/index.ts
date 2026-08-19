@@ -18,6 +18,7 @@ import {
   detectCurrentTitle,
   detectSite,
   getOverlayAnchor,
+  getInlineTarget,
   isOnTitlePage,
   waitForTitle,
   type TitleInfo,
@@ -44,6 +45,14 @@ let shadowRoot: ShadowRoot | null = null;
 // from the many DOM mutations that don't change what's on screen
 let currentTitleKey: string | null = null;
 
+// Whether the overlay is spliced into the page's layout or floating over it.
+// The card styles itself differently for each, so this travels with the mount.
+let currentVariant: "inline" | "floating" = "floating";
+
+// The title currently displayed, so the watchdog can re-mount it if the host
+// page's own framework tears our node out
+let currentTitleInfo: TitleInfo | null = null;
+
 // Debounce timer for URL change detection
 let urlCheckTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -55,6 +64,9 @@ const TITLE_RENDER_TIMEOUT_MS = 5000;
 
 // Collapses the several URL rewrites a router can emit for one navigation
 const NAVIGATION_DEBOUNCE_MS = 150;
+
+// How often to confirm the overlay is still in the document
+const REATTACH_CHECK_MS = 1000;
 
 /**
  * Initialize the content script
@@ -87,6 +99,11 @@ async function init(): Promise<void> {
 
   // Set up URL change detection (for SPAs)
   watchNavigation(onUrlChange);
+
+  // Splicing into the host page means its own framework can re-render the
+  // subtree we live in and take our node with it, without the URL changing.
+  // A detached container is cheap to notice and the only way to survive that.
+  setInterval(reattachIfDetached, REATTACH_CHECK_MS);
 
   // Initial check for title display
   await checkForTitle();
@@ -159,6 +176,23 @@ async function checkForTitle(): Promise<void> {
 }
 
 /**
+ * Put the overlay back if the host page's rendering removed it.
+ *
+ * Only relevant when spliced inline: the site's own framework owns that
+ * subtree and will happily replace it on a re-render, which detaches our
+ * container without any navigation happening.
+ */
+function reattachIfDetached(): void {
+  if (!overlayContainer || !currentTitleInfo) return;
+  if (document.body.contains(overlayContainer)) return;
+
+  console.log("[Clapboard] Overlay was detached by the page — remounting");
+  const titleInfo = currentTitleInfo;
+  unmountOverlay();
+  mountOverlay(titleInfo);
+}
+
+/**
  * Mount the React overlay UI, or re-render it when the title has changed
  */
 function mountOverlay(titleInfo: TitleInfo): void {
@@ -173,7 +207,8 @@ function mountOverlay(titleInfo: TitleInfo): void {
     // Different title in an overlay that's already up: re-render in place so
     // the card doesn't flicker out and back in during navigation
     currentTitleKey = key;
-    reactRoot?.render(createElement(App, { titleInfo }));
+    currentTitleInfo = titleInfo;
+    reactRoot?.render(createElement(App, { titleInfo, variant: currentVariant }));
     console.log("[Clapboard] Overlay updated for:", titleInfo.title);
     return;
   }
@@ -206,19 +241,31 @@ function mountOverlay(titleInfo: TitleInfo): void {
   mountPoint.id = "clapboard-react-root";
   shadowRoot.appendChild(mountPoint);
 
-  // Find the best anchor point in the host page
-  const anchor = getOverlayAnchor();
-  if (anchor) {
-    anchor.appendChild(overlayContainer);
+  // Splice into the page's own layout where we know where that is, so the
+  // ratings are read alongside the site's information rather than floating in
+  // a corner over the top of it.
+  const inlineTarget = getInlineTarget();
+
+  if (inlineTarget) {
+    currentVariant = "inline";
+    overlayContainer.style.display = "block";
+    overlayContainer.style.width = "100%";
+
+    const { reference, placement } = inlineTarget;
+    reference.parentElement?.insertBefore(
+      overlayContainer,
+      placement === "after" ? reference.nextSibling : reference
+    );
   } else {
-    // Fallback: append to body
-    document.body.appendChild(overlayContainer);
+    currentVariant = "floating";
+    (getOverlayAnchor() ?? document.body).appendChild(overlayContainer);
   }
 
   // Mount React app
   currentTitleKey = key;
+  currentTitleInfo = titleInfo;
   reactRoot = createRoot(mountPoint);
-  reactRoot.render(createElement(App, { titleInfo }));
+  reactRoot.render(createElement(App, { titleInfo, variant: currentVariant }));
 
   console.log("[Clapboard] Overlay mounted");
 }
@@ -241,6 +288,7 @@ function unmountOverlay(): void {
   overlayContainer = null;
   shadowRoot = null;
   currentTitleKey = null;
+  currentTitleInfo = null;
 
   console.log("[Clapboard] Overlay unmounted");
 }

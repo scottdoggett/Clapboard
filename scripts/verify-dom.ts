@@ -529,6 +529,78 @@ check(
   );
 }
 
+// --- Splicing into the page's own layout -----------------------------------
+// Captured from the live modal: `.detail-modal-container` holds three
+// `.ptrack-container` sections — details, "More Like This", "About …". The
+// overlay belongs between the first and second, so ratings are read before
+// recommendations rather than after them.
+{
+  const { dom, mod } = await loadPage(
+    "https://www.netflix.com/browse?jbv=80075560",
+    `<body><div data-uia="modal-motion-container-DETAIL_MODAL">
+       <div class="previewModal--info"><div class="detail-modal-container">
+         <div class="ptrack-container"><div class="previewModal--detailsMetadata">2015 2h 10m</div></div>
+         <div class="ptrack-container">More Like This</div>
+         <div class="ptrack-container">About The Big Short</div>
+       </div></div>
+     </div></body>`
+  );
+
+  const target = mod.getInlineTarget();
+  check("finds a splice point", target !== null, true);
+
+  // The anchor is nested inside the element that occupies the layout slot;
+  // inserting next to the anchor would bury the overlay inside the details
+  // section instead of placing it between sections
+  check(
+    "lifts to the section wrapper rather than the anchor",
+    target?.reference.className,
+    "ptrack-container"
+  );
+  check("inserts after it", target?.placement, "after");
+
+  // Perform the insertion the content script performs, and assert the order
+  const marker = dom.window.document.createElement("div");
+  marker.id = "clapboard";
+  target!.reference.parentElement!.insertBefore(
+    marker,
+    target!.placement === "after" ? target!.reference.nextSibling : target!.reference
+  );
+
+  check(
+    "lands between the details and More Like This",
+    [...dom.window.document.querySelector(".detail-modal-container")!.children].map((c) =>
+      c.id === "clapboard" ? "CLAPBOARD" : c.textContent!.trim().slice(0, 14).trim()
+    ),
+    ["2015 2h 10m", "CLAPBOARD", "More Like This", "About The Big"]
+  );
+}
+
+{
+  // A platform whose structure has never been verified claims no splice point,
+  // and the overlay floats rather than guessing at someone's layout
+  const { mod } = await loadPage(
+    "https://www.primevideo.com/detail/0GLPS",
+    `<body><h1 data-automation-id="title">Dune</h1></body>`
+  );
+  check("no splice point where none is configured", mod.getInlineTarget(), null);
+}
+
+{
+  // The anchor exists but its wrapper does not — fall back to the anchor
+  const { mod } = await loadPage(
+    "https://www.netflix.com/browse?jbv=1",
+    `<body><div data-uia="modal-motion-container-DETAIL_MODAL">
+       <div><div class="previewModal--detailsMetadata">2015</div></div>
+     </div></body>`
+  );
+  check(
+    "falls back to the anchor when the wrapper is absent",
+    mod.getInlineTarget()?.reference.className,
+    "previewModal--detailsMetadata"
+  );
+}
+
 // --- Waiting for a late-rendering title ------------------------------------
 // The bug this replaced: Netflix inserts its modal container immediately and
 // fills in the story art afterwards, so waiting for the container then trying

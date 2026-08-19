@@ -165,6 +165,16 @@ Custom esbuild script that:
 - Resolves path aliases (`@shared/*`, `@content/*`, etc.) matching `tsconfig.json`
 - Copies manifest, icons, popup HTML, and assets to `dist/`
 
+### Where the Overlay Goes
+
+The card splices into the host page's own layout rather than floating over it, so its information is read alongside the site's rather than after it.
+
+`selectors.inline` describes the splice point: an `anchor` to position against, an optional `lift` ancestor, and a `placement`. The `lift` is the part that isn't obvious — the element that *identifies* the right spot is usually nested inside the element that *occupies* the layout slot. On Netflix, `.detail-modal-container` holds three `.ptrack-container` sections (details, "More Like This", "About …"); the anchor is the metadata block inside the first, so inserting next to the anchor buries the card inside that section while inserting next to its `.ptrack-container` places it between sections.
+
+- Netflix's splice point was read off the live DOM and verified by injecting a probe into the running page. **The other three platforms declare `inline: null`** and fall back to floating, because guessing at someone's layout is how the invented selectors happened.
+- Splicing means the site's own framework owns the subtree we live in and can drop our node on a re-render with no navigation. `reattachIfDetached` notices a detached container once a second and re-mounts.
+- The card styles itself differently in each mode (`variant`): inline drops the shadow, the poster, and the repeated title/year/genre the page is already showing, and leads with a section heading instead.
+
 ### Overlay Theming
 
 The card colours itself from the film's own poster (`usePosterPalette` → `src/shared/utils/color.ts`), so it reads as part of what you're looking at rather than as an extension bolted onto the page.

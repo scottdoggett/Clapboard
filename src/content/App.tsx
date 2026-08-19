@@ -17,12 +17,18 @@ interface AppProps {
     year?: number;
     type?: "movie" | "series";
   };
+  /**
+   * "inline" when spliced into the host page's layout, "floating" when sitting
+   * over it. The two need different chrome: a section that belongs to the page
+   * shouldn't have a drop shadow and a close button.
+   */
+  variant?: "inline" | "floating";
 }
 
 /**
  * Root component for the Clapboard overlay
  */
-const App: React.FC<AppProps> = ({ titleInfo }) => {
+const App: React.FC<AppProps> = ({ titleInfo, variant = "floating" }) => {
   const { movie, ratings, averageScore, isLoading, error } = useMovieData(titleInfo);
 
   // Scoring searches for reviews by name, so it uses the title the ratings
@@ -42,15 +48,22 @@ const App: React.FC<AppProps> = ({ titleInfo }) => {
 
   const aiScores = useAiScores(scoringTarget);
 
+  // A floating card is positioned over the page; an inline one is a section of
+  // it and must not be taken out of flow
+  const shell = (children: React.ReactNode) =>
+    variant === "inline" ? (
+      <div className="cb-w-full">{children}</div>
+    ) : (
+      <div className="cb-fixed cb-bottom-4 cb-right-4 cb-z-[999999]">{children}</div>
+    );
+
   // Don't render anything while loading initial data
   if (isLoading && !movie) {
-    return (
-      <div className="cb-fixed cb-bottom-4 cb-right-4 cb-z-[999999]">
-        <div className="cb-bg-surface cb-rounded-overlay cb-p-4 cb-shadow-overlay cb-animate-fade-in">
-          <div className="cb-flex cb-items-center cb-gap-2 cb-text-white">
-            <LoadingSpinner />
-            <span className="cb-text-sm">Loading ratings...</span>
-          </div>
+    return shell(
+      <div className="cb-bg-surface cb-rounded-overlay cb-p-4 cb-shadow-overlay cb-animate-fade-in">
+        <div className="cb-flex cb-items-center cb-gap-2 cb-text-white">
+          <LoadingSpinner />
+          <span className="cb-text-sm">Loading ratings...</span>
         </div>
       </div>
     );
@@ -62,19 +75,17 @@ const App: React.FC<AppProps> = ({ titleInfo }) => {
   if (error) {
     console.error("[Clapboard] Error loading movie data:", error);
 
-    return (
-      <div className="cb-fixed cb-bottom-4 cb-right-4 cb-z-[999999]">
-        <div className="cb-bg-surface cb-rounded-overlay cb-p-4 cb-shadow-overlay cb-w-80">
-          <div className="cb-flex cb-items-start cb-gap-2">
-            <span className="cb-text-base">⚠️</span>
-            <div>
-              <p className="cb-text-white cb-text-sm cb-font-medium cb-m-0">
-                Clapboard couldn&apos;t load ratings
-              </p>
-              <p className="cb-text-gray-400 cb-text-xs cb-mt-1 cb-m-0">
-                {error.message}
-              </p>
-            </div>
+    return shell(
+      <div className="cb-bg-surface cb-rounded-overlay cb-p-4 cb-shadow-overlay">
+        <div className="cb-flex cb-items-start cb-gap-2">
+          <span className="cb-text-base">⚠️</span>
+          <div>
+            <p className="cb-text-white cb-text-sm cb-font-medium cb-m-0">
+              Clapboard couldn&apos;t load ratings
+            </p>
+            <p className="cb-text-gray-400 cb-text-xs cb-mt-1 cb-m-0">
+              {error.message}
+            </p>
           </div>
         </div>
       </div>
@@ -86,13 +97,13 @@ const App: React.FC<AppProps> = ({ titleInfo }) => {
     return null;
   }
 
-  return (
-    <div className="cb-fixed cb-bottom-4 cb-right-4 cb-z-[999999]">
-      <OverlayCard
-        movie={movie}
-        ratings={ratings}
-        averageScore={averageScore}
-        aiScores={
+  return shell(
+    <OverlayCard
+      movie={movie}
+      ratings={ratings}
+      averageScore={averageScore}
+      variant={variant}
+      aiScores={
           FEATURES.AI_SCORES_ENABLED
             ? {
                 result: aiScores.scores,
@@ -103,10 +114,9 @@ const App: React.FC<AppProps> = ({ titleInfo }) => {
                 error: aiScores.error,
                 onRequest: aiScores.request,
               }
-            : null
-        }
-      />
-    </div>
+          : null
+      }
+    />
   );
 };
 

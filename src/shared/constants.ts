@@ -65,6 +65,31 @@ export interface SiteSelectors {
    * which materially change which title OMDb resolves to.
    */
   readonly metadata: readonly string[];
+  /**
+   * Where to splice the overlay into the page's own layout, so it reads as a
+   * section of the site rather than as a floating box. Null falls back to a
+   * fixed-position card in the corner.
+   */
+  readonly inline: InlineTarget | null;
+}
+
+/**
+ * Describes a splice point in the host page's DOM.
+ */
+export interface InlineTarget {
+  /** Element to position relative to, tried in order */
+  readonly anchor: readonly string[];
+  /**
+   * Insert relative to this ancestor of the anchor when it exists.
+   *
+   * The element that identifies the right place is often nested inside the
+   * element that actually occupies the layout slot. On Netflix the anchor is
+   * the metadata block, but each of the modal's sections is wrapped in a
+   * `.ptrack-container` — inserting next to the wrapper puts the overlay
+   * between sections; inserting next to the anchor buries it inside one.
+   */
+  readonly lift?: string;
+  readonly placement: "before" | "after";
 }
 
 /**
@@ -124,11 +149,20 @@ export const SUPPORTED_SITES = {
       ],
       seriesIndicator: ['[data-uia="episode-list"]', ".episodeSelector", ".season-list"],
       metadata: [
-        '[data-uia="modal-motion-container-DETAIL_MODAL"] [data-uia="previewModal--detailsMetadata"]',
-        '[data-uia="previewModal--detailsMetadata"]',
         '[data-uia="modal-motion-container-DETAIL_MODAL"] .previewModal--detailsMetadata',
+        '[data-uia="previewModal--detailsMetadata"]',
+        ".previewModal--detailsMetadata",
         ".videoMetadata--container",
       ],
+      // Verified against the live modal: `.detail-modal-container` holds three
+      // `.ptrack-container` sections — details, "More Like This", "About …".
+      // This lands the overlay between the first and second, so ratings are
+      // read before recommendations rather than after them.
+      inline: {
+        anchor: [".previewModal--detailsMetadata"],
+        lift: ".ptrack-container",
+        placement: "after",
+      },
     },
   },
   disneyPlus: {
@@ -163,6 +197,9 @@ export const SUPPORTED_SITES = {
         '[data-testid="episode-list"]',
       ],
       metadata: ['[data-testid="details-metadata"]', ".metadata", '[data-testid="hero-metadata"]'],
+      // Unverified against the live site, so no splice point is claimed — the
+      // overlay floats until someone confirms the real structure.
+      inline: null,
     },
   },
   primeVideo: {
@@ -194,6 +231,9 @@ export const SUPPORTED_SITES = {
         '[data-automation-id="season-selector"]',
       ],
       metadata: ['[data-automation-id="meta-info"]', ".dv-node-dp-badges", ".release-year"],
+      // Unverified against the live site, so no splice point is claimed — the
+      // overlay floats until someone confirms the real structure.
+      inline: null,
     },
   },
   crave: {
@@ -211,6 +251,9 @@ export const SUPPORTED_SITES = {
       overlayAnchor: [".program-details", "[data-testid='content-details']"],
       seriesIndicator: [".season-selector", ".episode-list", "[data-testid='episodes']"],
       metadata: [".program-metadata", "[data-testid='content-metadata']"],
+      // Unverified against the live site, so no splice point is claimed — the
+      // overlay floats until someone confirms the real structure.
+      inline: null,
     },
   },
 } as const satisfies Record<string, SiteConfig>;

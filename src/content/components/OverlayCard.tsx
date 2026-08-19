@@ -45,6 +45,12 @@ interface OverlayCardProps {
   averageScore?: number | null;
   /** AI score state, or null when the feature is disabled */
   aiScores?: AiScoresState | null;
+  /**
+   * "inline" renders as a section of the host page — full width, no shadow,
+   * a heading matched to the site's own. "floating" is the corner card used
+   * where we have no verified splice point.
+   */
+  variant?: "inline" | "floating";
 }
 
 /**
@@ -55,6 +61,7 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
   ratings,
   averageScore = null,
   aiScores = null,
+  variant = "floating",
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -76,8 +83,9 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
     if (next) aiScores?.onRequest();
   };
 
-  // Minimized view — just show a small icon
-  if (isMinimized) {
+  // Minimized view — only meaningful for the floating card. An inline section
+  // collapsing to a corner button would leave a hole in the page's layout.
+  if (isMinimized && variant === "floating") {
     return (
       <button
         onClick={() => setIsMinimized(false)}
@@ -92,15 +100,19 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
 
   return (
     <div
-      className="cb-rounded-overlay cb-shadow-overlay cb-animate-slide-up cb-w-[400px] cb-overflow-hidden cb-backdrop-blur-xl"
-      style={surfaceStyle(palette)}
+      className={
+        variant === "inline"
+          ? "cb-w-full cb-rounded-lg cb-overflow-hidden cb-my-8"
+          : "cb-rounded-overlay cb-shadow-overlay cb-animate-slide-up cb-w-[400px] cb-overflow-hidden cb-backdrop-blur-xl"
+      }
+      style={surfaceStyle(palette, variant)}
     >
       {/* Header — the poster sets the card's colour, so it leads */}
       <div
         className="cb-flex cb-items-start cb-gap-3 cb-p-4"
         style={headerStyle(palette)}
       >
-        {movie.posterUrl && (
+        {variant === "floating" && movie.posterUrl && (
           <img
             src={movie.posterUrl}
             alt=""
@@ -111,19 +123,23 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
 
         <div className="cb-flex-1 cb-min-w-0">
           <h2
-            className="cb-font-semibold cb-text-lg cb-leading-tight cb-m-0"
+            className={
+              variant === "inline"
+                ? "cb-font-medium cb-text-xl cb-leading-tight cb-m-0"
+                : "cb-font-semibold cb-text-lg cb-leading-tight cb-m-0"
+            }
             style={{ color: palette ? toCss(palette.onSurface) : undefined }}
           >
-            {movie.title}
+            {variant === "inline" ? "Ratings & Awards" : movie.title}
           </h2>
 
           <div className="cb-flex cb-items-center cb-gap-2 cb-mt-1.5 cb-flex-wrap">
-            {movie.year && (
+            {variant === "floating" && movie.year && (
               <span className="cb-text-xs cb-opacity-70" style={mutedStyle(palette)}>
                 {movie.year}
               </span>
             )}
-            {movie.runtime && (
+            {variant === "floating" && movie.runtime && (
               <span className="cb-text-xs cb-opacity-70" style={mutedStyle(palette)}>
                 {formatRuntime(movie.runtime)}
               </span>
@@ -144,21 +160,23 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
             )}
           </div>
 
-          {movie.genre && movie.genre.length > 0 && (
+          {variant === "floating" && movie.genre && movie.genre.length > 0 && (
             <p className="cb-text-xs cb-mt-1.5 cb-m-0 cb-opacity-60 cb-truncate" style={mutedStyle(palette)}>
               {movie.genre.slice(0, 3).join(" · ")}
             </p>
           )}
         </div>
 
-        <button
-          onClick={() => setIsMinimized(true)}
-          className="cb-p-1 cb-opacity-60 hover:cb-opacity-100 cb-transition-opacity cb-flex-shrink-0"
-          style={mutedStyle(palette)}
-          aria-label="Minimize"
-        >
-          <MinimizeIcon />
-        </button>
+        {variant === "floating" && (
+          <button
+            onClick={() => setIsMinimized(true)}
+            className="cb-p-1 cb-opacity-60 hover:cb-opacity-100 cb-transition-opacity cb-flex-shrink-0"
+            style={mutedStyle(palette)}
+            aria-label="Minimize"
+          >
+            <MinimizeIcon />
+          </button>
+        )}
       </div>
 
       {/* A hairline in the poster's colour, tying the sections together */}
@@ -169,7 +187,7 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
 
       {/* Ratings Section */}
       <div className="cb-p-4">
-        <div className="cb-grid cb-grid-cols-2 cb-gap-2">
+        <div className={variant === "inline" ? "cb-grid cb-grid-cols-4 cb-gap-3" : "cb-grid cb-grid-cols-2 cb-gap-2"}>
           {sortRatingsByPriority(ratings).map((rating) => (
             <RatingBadge key={rating.source} rating={rating} />
           ))}
@@ -299,14 +317,31 @@ function formatWait(ms: number): string {
  * Falls back to the neutral surface when no palette could be read — a
  * black-and-white poster, or a CDN that stops sending CORS headers.
  */
-function surfaceStyle(palette: Palette | null): React.CSSProperties {
-  if (!palette) return { background: "rgb(24, 24, 27)", color: "#fff" };
+function surfaceStyle(
+  palette: Palette | null,
+  variant: "inline" | "floating" = "floating"
+): React.CSSProperties {
+  // Inline, the card sits on the site's own background, so it needs only a
+  // whisper of tint — a fully opaque panel would read as a foreign object
+  // pasted into the page, which is the thing being fixed.
+  const base: React.CSSProperties =
+    variant === "inline"
+      ? { background: "rgba(255, 255, 255, 0.04)", color: "#fff" }
+      : { background: "rgb(24, 24, 27)", color: "#fff" };
 
-  return {
-    background: `linear-gradient(160deg, ${toCss(palette.surface)} 0%, rgb(12, 12, 14) 100%)`,
-    color: toCss(palette.onSurface),
-    border: `1px solid ${toCssAlpha(palette.accent, 0.25)}`,
-  };
+  if (!palette) return base;
+
+  return variant === "inline"
+    ? {
+        background: `linear-gradient(135deg, ${toCssAlpha(palette.accent, 0.14)} 0%, rgba(255,255,255,0.03) 60%)`,
+        color: toCss(palette.onSurface),
+        border: `1px solid ${toCssAlpha(palette.accent, 0.2)}`,
+      }
+    : {
+        background: `linear-gradient(160deg, ${toCss(palette.surface)} 0%, rgb(12, 12, 14) 100%)`,
+        color: toCss(palette.onSurface),
+        border: `1px solid ${toCssAlpha(palette.accent, 0.25)}`,
+      };
 }
 
 /**
