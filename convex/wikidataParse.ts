@@ -185,9 +185,20 @@ export function parseAwardsResponse(
     awards.push({ name, category, year, isWin, count: 1 });
   }
 
+  // Winning an award means being nominated for it, and Wikidata records both
+  // statements. Showing "Oscar — Best Cinematography" as won *and* nominated
+  // is not extra detail, it's the same fact twice and reads as a mistake.
+  const wins = new Set(
+    awards.filter((a) => a.isWin).map((a) => `${a.name}|${a.category ?? ""}|${a.year}`)
+  );
+
+  const deduped = awards.filter(
+    (a) => a.isWin || !wins.has(`${a.name}|${a.category ?? ""}|${a.year}`)
+  );
+
   // Wins before nominations, then alphabetical — a film's wins are the part
   // worth seeing first
-  return awards.sort((a, b) => {
+  return deduped.sort((a, b) => {
     if (a.isWin !== b.isWin) return a.isWin ? -1 : 1;
     if (a.name !== b.name) return a.name.localeCompare(b.name);
     return (a.category ?? "").localeCompare(b.category ?? "");

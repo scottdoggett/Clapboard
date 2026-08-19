@@ -177,5 +177,53 @@ check("reads zero", readRetryAfterMs("0"), 0);
 check("ignores nonsense", readRetryAfterMs("soon"), null);
 check("ignores a missing header", readRetryAfterMs(null), null);
 
+// --- A win supersedes its own nomination -----------------------------------
+// Wikidata stores both P166 (received) and P1411 (nominated for) for an award
+// the film won. Inception really does come back with Best Cinematography under
+// both, and showing it twice reads as a bug rather than as detail.
+const wonAndNominated = {
+  results: {
+    bindings: [
+      { kind: literal("nominated"), awardLabel: literal("Academy Award for Best Cinematography"), date: dated("2011-02-27T00:00:00Z") },
+      { kind: literal("won"), awardLabel: literal("Academy Award for Best Cinematography"), date: dated("2011-02-27T00:00:00Z") },
+      { kind: literal("nominated"), awardLabel: literal("Academy Award for Best Picture"), date: dated("2011-02-27T00:00:00Z") },
+    ],
+  },
+};
+check("a win hides its own nomination", parseAwardsResponse(wonAndNominated, 2010), [
+  { name: "Oscar", category: "Best Cinematography", year: 2011, isWin: true, count: 1 },
+  { name: "Oscar", category: "Best Picture", year: 2011, isWin: false, count: 1 },
+]);
+
+// A nomination in a different year is a different event, not a duplicate
+check(
+  "a nomination in another year survives",
+  parseAwardsResponse(
+    {
+      results: {
+        bindings: [
+          { kind: literal("won"), awardLabel: literal("Academy Award for Best Sound"), date: dated("2011-02-27T00:00:00Z") },
+          { kind: literal("nominated"), awardLabel: literal("Academy Award for Best Sound"), date: dated("2012-02-26T00:00:00Z") },
+        ],
+      },
+    },
+    2010
+  ).length,
+  2
+);
+
+// The remainder arithmetic has to see the deduplicated count, or the "and N
+// more" line double-counts every award that was won
+check(
+  "merge counts each award once",
+  mergeAwards(parseAwardsResponse(wonAndNominated, 2010), { wins: 160, nominations: 220 }, 2010).filter(
+    (a) => a.name === "Other awards" || a.name === "Nominations"
+  ),
+  [
+    { name: "Other awards", category: "wins", year: 2010, isWin: true, count: 159 },
+    { name: "Nominations", year: 2010, isWin: false, count: 219 },
+  ]
+);
+
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);
