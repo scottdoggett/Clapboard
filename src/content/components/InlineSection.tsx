@@ -21,6 +21,8 @@ import type { AiScoresState } from "./OverlayCard";
 import { sortRatingsByPriority, getScoreTier } from "@shared/utils/scoring";
 import { RATING_SOURCES } from "@shared/constants";
 import { ratingUrl, awardUrl, personUrl } from "@shared/utils/links";
+import { useLibraryEntry } from "../hooks/useLibraryEntry";
+import LibraryControls from "./LibraryControls";
 
 interface InlineSectionProps {
   movie: Movie;
@@ -64,6 +66,15 @@ const InlineSection: React.FC<InlineSectionProps> = ({
   const [showAllAwards, setShowAllAwards] = useState(false);
   const [showScores, setShowScores] = useState(false);
 
+  // The IMDb id is what makes this entry the same film across platforms; the
+  // rest is what the library needs to show it back without another lookup.
+  const library = useLibraryEntry({
+    title: movie.title,
+    year: movie.year,
+    imdbId: movie.imdbId,
+    posterUrl: movie.posterUrl,
+  });
+
   const named = (movie.awards ?? []).filter(isNamed);
   const totals = awardTotals(movie.awards ?? []);
   const visible = showAllAwards ? named : named.slice(0, AWARD_PREVIEW);
@@ -81,6 +92,8 @@ const InlineSection: React.FC<InlineSectionProps> = ({
       >
         Ratings &amp; Awards
       </h3>
+
+      <LibraryControls controls={library} />
 
       {/* Ratings, one panel each */}
       {ratings.length > 0 && (

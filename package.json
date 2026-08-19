@@ -18,6 +18,7 @@
     "verify:providers": "tsx scripts/verify-providers.ts",
     "verify:color": "tsx scripts/verify-color.ts",
     "verify:links": "tsx scripts/verify-links.ts",
+    "verify:library": "tsx scripts/verify-library.ts",
     "doctor": "tsx scripts/doctor.ts",
     "lint": "tsc --noEmit && eslint ."
   },
