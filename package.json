@@ -24,6 +24,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
+    "@auth/core": "^0.41.1",
+    "@convex-dev/auth": "^0.0.95",
     "convex": "*",
     "next": "*",
     "react": "*",

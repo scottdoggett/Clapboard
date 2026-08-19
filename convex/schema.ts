@@ -7,7 +7,8 @@
  * Tables:
  * - movies: Core movie/show metadata
  * - ratings: Aggregated ratings from various sources
- * - users: User accounts (Phase 4)
+ * - users/authSessions/…: Convex Auth's tables
+ * - libraryEntries: A signed-in user's watchlist, ratings and reviews
  * - reviews: Review data for AI processing (Phase 3)
  * - aiScores: Category scores derived from published reviews (Phase 3)
  * - scoringRuns: Rolling log of AI scoring runs, for the spend ceiling (Phase 3)
@@ -15,8 +16,18 @@
 
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
 
 export default defineSchema({
+  /**
+   * Convex Auth's own tables — users, sessions, accounts, refresh tokens.
+   *
+   * This replaces the hand-rolled `users` table that was here for Phase 4:
+   * `authTables.users` is the one the auth library reads and writes, and
+   * having two would mean two answers to "who is this".
+   */
+  ...authTables,
+
   /**
    * Movies table
    *
@@ -73,25 +84,6 @@ export default defineSchema({
   })
     .index("by_movie", ["movieId"])
     .index("by_movie_and_source", ["movieId", "source"]),
-
-  /**
-   * Users table (Phase 4)
-   *
-   * User accounts synced from Clerk authentication.
-   */
-  users: defineTable({
-    // Clerk user ID
-    clerkId: v.string(),
-
-    // User info
-    email: v.string(),
-    name: v.optional(v.string()),
-
-    // Timestamps
-    createdAt: v.number(),
-  })
-    .index("by_clerk_id", ["clerkId"])
-    .index("by_email", ["email"]),
 
   /**
    * Reviews table (Phase 3)
@@ -234,6 +226,52 @@ export default defineSchema({
   })
     .index("by_started_at", ["startedAt"])
     .index("by_client_and_started_at", ["clientId", "startedAt"]),
+
+  /**
+   * Library entries
+   *
+   * One row per user per title: watched, watchlisted, liked, rated, reviewed.
+   *
+   * The extension keeps the same data in `chrome.storage` and works fully
+   * signed out; this is the copy that survives a reinstall and follows the
+   * user to another browser. Both sides carry `updatedAt` so the newer edit
+   * wins when they disagree — the alternative, a server that always overwrites,
+   * would silently discard whatever was marked while signed out.
+   *
+   * Keyed by IMDb id where there is one, because the same film is titled
+   * differently across services. `titleKey` mirrors the extension's normalized
+   * fallback so an entry made from a browse tile, before any lookup ran, still
+   * matches the film once it resolves.
+   */
+  libraryEntries: defineTable({
+    userId: v.id("users"),
+
+    /** "imdb:tt1596363" or "title:the big short|2015|movie" */
+    key: v.string(),
+    /** Normalized title alone, for matching a tile that knows only a name */
+    titleKey: v.string(),
+
+    title: v.string(),
+    year: v.optional(v.number()),
+    type: v.optional(v.union(v.literal("movie"), v.literal("series"))),
+    imdbId: v.optional(v.string()),
+    posterUrl: v.optional(v.string()),
+
+    watchedAt: v.optional(v.number()),
+    watchlistedAt: v.optional(v.number()),
+    sentiment: v.optional(v.union(v.literal("liked"), v.literal("disliked"))),
+
+    /** The user's own score, 0-10 in halves */
+    rating: v.optional(v.number()),
+    reviewText: v.optional(v.string()),
+    reviewUpdatedAt: v.optional(v.number()),
+
+    updatedAt: v.number(),
+  })
+    // Every read is scoped by user, so the user comes first in every index
+    .index("by_user_and_key", ["userId", "key"])
+    .index("by_user_and_title", ["userId", "titleKey"])
+    .index("by_user_and_updated", ["userId", "updatedAt"]),
 
   /**
    * Lookups table

@@ -17,6 +17,7 @@ import {
   sortEntries,
   type LibraryEntry,
 } from "../src/shared/utils/library";
+import { fillFor, starRow, nextScore } from "../src/shared/utils/stars";
 
 let failures = 0;
 
@@ -148,6 +149,28 @@ check(
   sortEntries(entries).map((e) => e.title),
   ["Watchlisted", "Watched", "Both", "Reviewed"]
 );
+
+// --- Star rating -----------------------------------------------------------
+// Someone's own rating shown back to them incorrectly is the worst kind of
+// bug here, and these boundaries are half a step apart.
+check("an unrated row is empty", starRow(0).filter((f) => f !== "empty").length, 0);
+check("half a star", starRow(0.5)[0], "half");
+check("one star", starRow(1)[0], "full");
+check("a whole score fills exactly that many", starRow(7).filter((f) => f === "full").length, 7);
+check("...and leaves the rest empty", starRow(7).filter((f) => f === "empty").length, 3);
+check("a half score fills the halves correctly", starRow(7.5).slice(6, 9), ["full", "half", "empty"]);
+check("full marks fill every star", starRow(10).every((f) => f === "full"), true);
+
+// Boundaries, one half-step either side
+check("just under a half is empty", fillFor(0.4, 0), "empty");
+check("exactly a half is half", fillFor(0.5, 0), "half");
+check("just under full is half", fillFor(0.9, 0), "half");
+check("exactly full is full", fillFor(1, 0), "full");
+
+// Clicking what is already selected is the only route back to unrated
+check("clicking the current score clears it", nextScore(7.5, 7.5), undefined);
+check("clicking another score sets it", nextScore(7.5, 3), 3);
+check("clicking from unrated sets it", nextScore(undefined, 5), 5);
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

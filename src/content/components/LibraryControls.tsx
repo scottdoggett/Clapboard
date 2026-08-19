@@ -10,6 +10,7 @@
 
 import React, { useState } from "react";
 import type { LibraryControls as Controls } from "../hooks/useLibraryEntry";
+import StarRating from "./StarRating";
 
 const IDLE_BORDER = "rgba(255, 255, 255, 0.5)";
 const ACTIVE_BG = "rgba(255, 255, 255, 0.95)";
@@ -81,7 +82,7 @@ const LibraryControls: React.FC<LibraryControlsProps> = ({ controls }) => {
 
         {existing?.rating !== undefined && (
           <span style={{ color: BODY_COLOR, fontSize: "14px" }}>
-            Your rating: <span style={{ color: "#fff" }}>{existing.rating}/10</span>
+            <span style={{ color: "#fff" }}>{existing.rating}</span>/10
           </span>
         )}
       </div>
@@ -116,11 +117,7 @@ const ReviewForm: React.FC<{
   onCancel: () => void;
 }> = ({ initial, onSave, onCancel }) => {
   const [text, setText] = useState(initial?.text ?? "");
-  const [rating, setRating] = useState(
-    initial?.rating === undefined ? "" : String(initial.rating)
-  );
-
-  const parsedRating = rating.trim() === "" ? undefined : Number(rating);
+  const [rating, setRating] = useState<number | undefined>(initial?.rating);
 
   return (
     <div
@@ -156,41 +153,17 @@ const ReviewForm: React.FC<{
           display: "flex",
           alignItems: "center",
           gap: "10px",
-          marginTop: "10px",
+          marginTop: "12px",
           flexWrap: "wrap",
         }}
       >
-        <label style={{ color: LABEL_COLOR, fontSize: "14px" }}>
-          Your score{" "}
-          <input
-            type="number"
-            min={0}
-            max={10}
-            step={0.5}
-            value={rating}
-            onChange={(event) => setRating(event.target.value)}
-            placeholder="—"
-            style={{
-              width: "64px",
-              background: "rgba(0, 0, 0, 0.35)",
-              border: "1px solid rgba(255, 255, 255, 0.15)",
-              borderRadius: "4px",
-              color: "#fff",
-              padding: "5px 8px",
-              fontFamily: "inherit",
-              fontSize: "14px",
-            }}
-          />
-          <span style={{ marginLeft: "4px" }}>/ 10</span>
-        </label>
+        <StarRating value={rating} onChange={setRating} />
 
         <div style={{ marginLeft: "auto", display: "flex", gap: "8px" }}>
           <TextAction onClick={onCancel}>Cancel</TextAction>
           <TextAction
             emphasis
-            onClick={() =>
-              onSave(text, Number.isFinite(parsedRating) ? parsedRating : undefined)
-            }
+            onClick={() => onSave(text, rating)}
           >
             Save
           </TextAction>

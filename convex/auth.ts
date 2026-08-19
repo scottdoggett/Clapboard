@@ -1,98 +1,59 @@
 /**
- * Convex Authentication Helpers
+ * Authentication
  *
- * Helper functions for handling user authentication with Clerk.
- * Phase 4 feature — currently a stub.
+ * Convex Auth with the password provider, which is the only option here that
+ * needs no third-party account: sign-up and sign-in run entirely against this
+ * deployment. The keys live in the deployment's environment (`JWT_PRIVATE_KEY`,
+ * `JWKS`), set by `npx @convex-dev/auth`.
  *
- * Authentication flow:
- * 1. User authenticates via Clerk in the popup
- * 2. Clerk JWT is sent to Convex
- * 3. Convex validates the JWT and creates/retrieves user record
+ * Signing in is optional. Everything the extension does works signed out —
+ * ratings, awards, and a personal library held in `chrome.storage`. An account
+ * buys one thing: that library following you to another browser or surviving a
+ * reinstall. That framing matters, because it means nothing here may become a
+ * gate in front of the parts that already work.
  */
 
-import { QueryCtx, MutationCtx } from "./_generated/server";
+import { convexAuth, getAuthUserId } from "@convex-dev/auth/server";
+import { Password } from "@convex-dev/auth/providers/Password";
+import type { QueryCtx, MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+
+export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
+  providers: [Password],
+});
 
 /**
- * Get the currently authenticated user from the context
+ * The signed-in user's id, or null.
  *
- * @param _ctx - Convex query or mutation context (unused until Clerk is wired up)
- * @returns User document or null if not authenticated
+ * @param ctx - Query or mutation context
+ * @returns The user id, or null when signed out
  */
-export async function getCurrentUser(_ctx: QueryCtx | MutationCtx) {
-  // TODO: Implement Clerk authentication
-  // const identity = await ctx.auth.getUserIdentity();
-  // if (!identity) return null;
-  //
-  // return await ctx.db
-  //   .query("users")
-  //   .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-  //   .first();
-
-  return null;
+export async function currentUserId(
+  ctx: QueryCtx | MutationCtx
+): Promise<Id<"users"> | null> {
+  return await getAuthUserId(ctx);
 }
 
 /**
- * Require authentication — throws if user is not logged in
+ * The signed-in user's id, or an error.
  *
- * @param ctx - Convex query or mutation context
- * @returns User document
- * @throws Error if not authenticated
+ * Used by every function that reads or writes personal data, so a bug can't
+ * quietly return one person's watchlist to another: without a caller there is
+ * no data to return, and saying so is safer than returning an empty list that
+ * looks like "you have nothing saved".
+ *
+ * @param ctx - Query or mutation context
+ * @returns The user id
+ * @throws When nobody is signed in
  */
-export async function requireAuth(ctx: QueryCtx | MutationCtx) {
-  const user = await getCurrentUser(ctx);
+export async function requireUserId(
+  ctx: QueryCtx | MutationCtx
+): Promise<Id<"users">> {
+  const userId = await getAuthUserId(ctx);
 
-  if (!user) {
-    throw new Error("Authentication required");
+  if (!userId) {
+    throw new Error("Not signed in");
   }
 
-  return user;
-}
-
-/**
- * Create or update user record from Clerk identity
- *
- * @param ctx - Convex mutation context
- * @param identity - Clerk identity object
- * @returns User document ID
- */
-export async function upsertUser(
-  ctx: MutationCtx,
-  identity: {
-    subject: string;
-    email?: string;
-    name?: string;
-  }
-) {
-  // Check if user exists
-  const existingUser = await ctx.db
-    .query("users")
-    .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-    .first();
-
-  if (existingUser) {
-    // Update existing user if needed
-    // TODO: Add update logic if email/name changed
-    return existingUser._id;
-  }
-
-  // Create new user
-  return await ctx.db.insert("users", {
-    clerkId: identity.subject,
-    email: identity.email || "",
-    name: identity.name,
-    createdAt: Date.now(),
-  });
-}
-
-/**
- * Verify that a request is coming from a valid extension context
- * (Additional security layer for sensitive operations)
- *
- * @param ctx - Convex context
- * @returns boolean indicating if request is valid
- */
-export function verifyExtensionContext(_ctx: QueryCtx | MutationCtx): boolean {
-  // TODO: Implement extension verification
-  // This could check for a special header or token set by the extension
-  return true;
+  return userId;
 }

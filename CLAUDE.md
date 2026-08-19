@@ -78,7 +78,13 @@ Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patt
 
 The extension sends an anonymous per-installation id (`getClientId` in `src/shared/utils/storage.ts`) with scoring requests. It's a random UUID, stored only in the extension's own storage, sent only to the configured deployment, and exists solely so the scoring budget can tell installations apart.
 
-**Convex** (`convex/`) provides the database with tables: `movies`, `ratings`, `reviews`, `awards`, `aiScores`, `scoringRuns`, `users`, `lookups`. Schema in `convex/schema.ts`. Ratings are stored per-source (IMDb, RT, Metacritic, Letterboxd) with their native scales.
+**Auth** is Convex Auth with the password provider (`convex/auth.ts`) — the only option needing no third-party account, since sign-up runs entirely against this deployment. Keys live in the deployment env (`JWT_PRIVATE_KEY`, `JWKS`), set by `npx @convex-dev/auth`.
+
+Signing in is **optional and must stay optional**. Everything works signed out — ratings, awards, and a library in `chrome.storage`. An account buys one thing: that library surviving a reinstall and following you to another browser. Nothing in the auth path may become a gate in front of what already works.
+
+`convex/library.ts` holds the personal data. Every function starts with `requireUserId` and every index starts with `userId`, because this is the only table describing a person rather than a film — a query that forgets to scope returns someone else's viewing history. `push` merges on `updatedAt` so the newer edit wins; a server that always overwrote would discard whatever was marked while signed out.
+
+**Convex** (`convex/`) provides the database with tables: `movies`, `ratings`, `reviews`, `awards`, `aiScores`, `scoringRuns`, `libraryEntries`, `lookups`, plus Convex Auth's own (`users`, `authSessions`, `authAccounts`, …). Schema in `convex/schema.ts`. Ratings are stored per-source (IMDb, RT, Metacritic, Letterboxd) with their native scales.
 
 ### Data Flow
 
@@ -237,7 +243,7 @@ Defined in both `tsconfig.json` and the esbuild alias plugin:
 
 Phase 1 (Ratings Overlay) and Phase 2 (Awards) are implemented end to end: title detection → background worker → Convex → OMDb → overlay.
 
-Phase 3 (AI review scoring) is implemented, and everything except the model call itself has now been exercised against a live deployment: the schema deploys, and `claimScoringRun` was driven through claim → pending-dedup → release → budget exhaustion via `npx convex run`. What remains unproven is the Claude call — that needs an `ANTHROPIC_API_KEY` and `FEATURES.AI_SCORES_ENABLED` flipped on. Phase 4 (user accounts/Clerk auth) is still stubbed.
+Phase 3 (AI review scoring) is implemented, and everything except the model call itself has now been exercised against a live deployment: the schema deploys, and `claimScoringRun` was driven through claim → pending-dedup → release → budget exhaustion via `npx convex run`. What remains unproven is the Claude call — that needs an `ANTHROPIC_API_KEY` and `FEATURES.AI_SCORES_ENABLED` flipped on. Phase 4 (user accounts) has its backend done: auth, the `libraryEntries` table, and scoped read/write functions, all verified against the live deployment — sign-up returns a JWT, a scoped write and read round-trip, and an unauthenticated call is refused. What remains is the sign-in UI in the popup and the local↔server sync.
 
 Known gaps in the current phases:
 - The MDBList and TMDB providers have **never run against their live APIs** — both need keys. Their parsers are unit-verified and every failure path is a no-op, so an unconfigured or broken provider costs nothing, but the first real response is unproven. MDBList's per-rating field names are the specific unknown.
