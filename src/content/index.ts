@@ -226,10 +226,20 @@ function mountOverlay(titleInfo: TitleInfo): void {
   // Inject the compiled stylesheet into the shadow root
   const styleElement = document.createElement("style");
   styleElement.textContent = `
-    /* Base reset for shadow DOM */
+    /*
+     * Reset the shadow root, then deliberately re-inherit typography and
+     * colour from the host page.
+     *
+     * \`all: initial\` is what stops the site's CSS reaching in, but it also
+     * resets the font to the browser default — which is why the inline section
+     * looked foreign no matter how it was styled. Inheriting puts it in the
+     * site's own typeface, which for a section spliced into that site's layout
+     * is the whole game.
+     */
     :host {
       all: initial;
-      font-family: system-ui, -apple-system, sans-serif;
+      font-family: inherit;
+      color: inherit;
     }
 
     ${__CLAPBOARD_CSS__}

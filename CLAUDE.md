@@ -173,7 +173,8 @@ The card splices into the host page's own layout rather than floating over it, s
 
 - Netflix's splice point was read off the live DOM and verified by injecting a probe into the running page. **The other three platforms declare `inline: null`** and fall back to floating, because guessing at someone's layout is how the invented selectors happened.
 - Splicing means the site's own framework owns the subtree we live in and can drop our node on a re-render with no navigation. `reattachIfDetached` notices a detached container once a second and re-mounts.
-- The card styles itself differently in each mode (`variant`): inline drops the shadow, the poster, and the repeated title/year/genre the page is already showing, and leads with a section heading instead.
+- Inline and floating are **separate components**, not one with a `variant` check throughout — they differ on nearly every line. `InlineSection` reproduces Netflix's own values exactly: 24px/400 headings with `48px 0 20px` margins, 14px/20px fact rows, `#777` labels, `#ddd` values, middot separators. No background, no border, no icons.
+- The shadow root's `:host` re-inherits `font-family` and `color` after `all: initial`. The reset is what keeps the site's CSS out, but it also reset the typeface to the browser default, which is why the inline section read as foreign however it was styled. For a section spliced into a site's layout, using that site's typeface is most of the work.
 
 ### Overlay Theming
 

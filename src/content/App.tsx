@@ -9,6 +9,7 @@ import React, { useMemo } from "react";
 import { useMovieData } from "./hooks/useMovieData";
 import { useAiScores } from "./hooks/useAiScores";
 import OverlayCard from "./components/OverlayCard";
+import InlineSection from "./components/InlineSection";
 import { FEATURES } from "@shared/constants";
 
 interface AppProps {
@@ -97,26 +98,39 @@ const App: React.FC<AppProps> = ({ titleInfo, variant = "floating" }) => {
     return null;
   }
 
-  return shell(
-    <OverlayCard
-      movie={movie}
-      ratings={ratings}
-      averageScore={averageScore}
-      variant={variant}
-      aiScores={
-          FEATURES.AI_SCORES_ENABLED
-            ? {
-                result: aiScores.scores,
-                isLoading: aiScores.isLoading,
-                isUnavailable: aiScores.isUnavailable,
-                isPending: aiScores.isPending,
-                retryAfterMs: aiScores.retryAfterMs,
-                error: aiScores.error,
-                onRequest: aiScores.request,
-              }
-          : null
+  const aiState = FEATURES.AI_SCORES_ENABLED
+    ? {
+        result: aiScores.scores,
+        isLoading: aiScores.isLoading,
+        isUnavailable: aiScores.isUnavailable,
+        isPending: aiScores.isPending,
+        retryAfterMs: aiScores.retryAfterMs,
+        error: aiScores.error,
+        onRequest: aiScores.request,
       }
-    />
+    : null;
+
+  // Inline is a section of the host page and takes the page's own typography
+  // and fact-row layout; floating is a card over the page and keeps card
+  // chrome. They differ on nearly every line, so they are separate components
+  // rather than one with a `variant` check throughout.
+  return shell(
+    variant === "inline" ? (
+      <InlineSection
+        movie={movie}
+        ratings={ratings}
+        averageScore={averageScore}
+        aiScores={aiState}
+      />
+    ) : (
+      <OverlayCard
+        movie={movie}
+        ratings={ratings}
+        averageScore={averageScore}
+        variant={variant}
+        aiScores={aiState}
+      />
+    )
   );
 };
 
