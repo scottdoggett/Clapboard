@@ -100,6 +100,7 @@ function toLookupResult(
         isWin: award.isWin,
         count: award.count,
         people: award.people,
+        url: award.url,
       })),
     },
     ratings: ratings.map((rating) => ({
@@ -205,6 +206,7 @@ export const persistLookup = internalMutation({
         isWin: v.boolean(),
         count: v.number(),
         people: v.optional(v.array(v.string())),
+        url: v.optional(v.string()),
       })
     ),
   },
@@ -275,6 +277,7 @@ export const persistLookup = internalMutation({
         isWin: award.isWin,
         count: award.count,
         people: award.people,
+        url: award.url,
         createdAt: now,
       });
     }

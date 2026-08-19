@@ -17,6 +17,7 @@
     "verify:awards": "tsx scripts/verify-awards.ts",
     "verify:providers": "tsx scripts/verify-providers.ts",
     "verify:color": "tsx scripts/verify-color.ts",
+    "verify:links": "tsx scripts/verify-links.ts",
     "doctor": "tsx scripts/doctor.ts",
     "lint": "tsc --noEmit && eslint ."
   },

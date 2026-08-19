@@ -35,6 +35,8 @@ export interface ParsedAward {
    * names its producers and a festival's top-ten list names nobody.
    */
   people?: string[];
+  /** Article explaining the award, where the provider has one */
+  url?: string;
 }
 
 /**
@@ -74,6 +76,7 @@ export interface LookupResult {
       isWin: boolean;
       count?: number;
       people?: string[];
+      url?: string;
     }>;
   };
   ratings: Array<{

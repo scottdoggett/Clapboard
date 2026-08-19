@@ -106,6 +106,9 @@ export interface Award {
    * Picture" names its producers, a festival's top-ten list names nobody.
    */
   people?: string[];
+
+  /** Article explaining the award, where the awards provider has one */
+  url?: string;
 }
 
 /**

@@ -150,6 +150,9 @@ export default defineSchema({
     // acting award names its recipient; a festival's top-ten list names nobody.
     people: v.optional(v.array(v.string())),
 
+    // Article explaining the award, so the overlay can link out
+    url: v.optional(v.string()),
+
     // Timestamps
     createdAt: v.number(),
   }).index("by_movie", ["movieId"]),

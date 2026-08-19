@@ -20,6 +20,7 @@ import type { AiScoreResult, Award, Movie, Rating } from "@shared/types/movie";
 import type { AiScoresState } from "./OverlayCard";
 import { sortRatingsByPriority, getScoreTier } from "@shared/utils/scoring";
 import { RATING_SOURCES } from "@shared/constants";
+import { ratingUrl, awardUrl, personUrl } from "@shared/utils/links";
 
 interface InlineSectionProps {
   movie: Movie;
@@ -92,7 +93,7 @@ const InlineSection: React.FC<InlineSectionProps> = ({
           }}
         >
           {sortRatingsByPriority(ratings).map((rating) => (
-            <Panel key={rating.source}>
+            <Panel key={rating.source} href={ratingUrl(rating.source, movie.title, movie.imdbId)}>
               <div style={{ color: LABEL_COLOR, fontSize: "13px", marginBottom: "4px" }}>
                 {RATING_SOURCES[rating.source]?.name ?? rating.source}
               </div>
@@ -198,21 +199,45 @@ const InlineSection: React.FC<InlineSectionProps> = ({
 
 /**
  * A panel in the grey Netflix paints behind its own card synopses.
+ *
+ * With an `href` it becomes a link to the source, lifting slightly on hover —
+ * the same affordance Netflix gives its own cards, rather than an underline,
+ * which would fight the typography.
  */
-const Panel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div
-    style={{
-      background: PANEL_BG,
-      borderRadius: PANEL_RADIUS,
-      padding: "14px",
-      fontSize: "14px",
-      lineHeight: "20px",
-      color: BODY_COLOR,
-    }}
-  >
-    {children}
-  </div>
-);
+const Panel: React.FC<{ children: React.ReactNode; href?: string | null }> = ({
+  children,
+  href,
+}) => {
+  const [hover, setHover] = useState(false);
+
+  const style: React.CSSProperties = {
+    display: "block",
+    background: hover && href ? "rgb(60, 60, 60)" : PANEL_BG,
+    borderRadius: PANEL_RADIUS,
+    padding: "14px",
+    fontSize: "14px",
+    lineHeight: "20px",
+    color: BODY_COLOR,
+    textDecoration: "none",
+    transition: "background 120ms ease",
+    cursor: href ? "pointer" : "default",
+  };
+
+  if (!href) return <div style={style}>{children}</div>;
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={style}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      {children}
+    </a>
+  );
+};
 
 /**
  * One award: what it was, and who actually received it.
@@ -221,26 +246,89 @@ const Panel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
  * film; "Adam McKay and Charles Randolph won Best Adapted Screenplay" is a
  * fact about people, and it is the one worth reading.
  */
-const AwardRow: React.FC<{ award: Award }> = ({ award }) => (
-  <div style={{ display: "flex", gap: "10px", padding: "5px 0", alignItems: "baseline" }}>
-    <AwardMark isWin={award.isWin} />
+const AwardRow: React.FC<{ award: Award }> = ({ award }) => {
+  const [hover, setHover] = useState(false);
+  const href = awardUrl(award.name, award.category, award.url);
 
-    <span style={{ flex: 1, minWidth: 0 }}>
-      <span style={{ color: "#fff" }}>{award.name}</span>
+  // The award title links to the award; the recipients beneath link to
+  // themselves. So the row is not an anchor — nesting anchors is invalid and
+  // browsers resolve it by dropping the inner ones, which would silently kill
+  // the recipient links.
+  const title = (
+    <>
+      {award.name}
       {award.category ? <span style={{ color: BODY_COLOR }}> {award.category}</span> : null}
-      {award.count && award.count > 1 ? (
-        <span style={{ color: LABEL_COLOR }}> ×{award.count}</span>
-      ) : null}
-      {award.people && award.people.length > 0 ? (
-        <div style={{ color: LABEL_COLOR, fontSize: "13px" }}>
-          {award.people.join(", ")}
-        </div>
-      ) : null}
-    </span>
+    </>
+  );
 
-    <span style={{ color: LABEL_COLOR, fontSize: "13px", flexShrink: 0 }}>{award.year}</span>
-  </div>
-);
+  return (
+    <div
+      style={{ display: "flex", gap: "10px", padding: "5px 0", alignItems: "baseline" }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <AwardMark isWin={award.isWin} />
+
+      <span style={{ flex: 1, minWidth: 0 }}>
+        {href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#fff", textDecoration: hover ? "underline" : "none" }}
+          >
+            {title}
+          </a>
+        ) : (
+          <span style={{ color: "#fff" }}>{title}</span>
+        )}
+
+        {award.count && award.count > 1 ? (
+          <span style={{ color: LABEL_COLOR }}> ×{award.count}</span>
+        ) : null}
+
+        {award.people && award.people.length > 0 ? (
+          <div style={{ color: LABEL_COLOR, fontSize: "13px" }}>
+            {award.people.map((name, index) => (
+              <React.Fragment key={name}>
+                {index > 0 && ", "}
+                <PersonLink name={name} />
+              </React.Fragment>
+            ))}
+          </div>
+        ) : null}
+      </span>
+
+      <span style={{ color: LABEL_COLOR, fontSize: "13px", flexShrink: 0 }}>{award.year}</span>
+    </div>
+  );
+};
+
+/**
+ * A recipient's name, linking to who they are.
+ */
+const PersonLink: React.FC<{ name: string }> = ({ name }) => {
+  const href = personUrl(name);
+  const [hover, setHover] = useState(false);
+
+  if (!href) return <>{name}</>;
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        color: hover ? "#fff" : LABEL_COLOR,
+        textDecoration: hover ? "underline" : "none",
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      {name}
+    </a>
+  );
+};
 
 /**
  * The win/nomination mark: a laurel and a short label, in Netflix's chip

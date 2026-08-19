@@ -53,7 +53,7 @@ export function buildAwardsQuery(imdbId: string): string {
   // belt and braces against a malformed one reaching the query.
   const safeId = imdbId.replace(/[^A-Za-z0-9]/g, "");
 
-  return `SELECT ?awardLabel ?kind ?date ?personLabel WHERE {
+  return `SELECT ?awardLabel ?kind ?date ?personLabel ?article WHERE {
   ?film wdt:P345 "${safeId}" .
   {
     ?film p:P166 ?statement . ?statement ps:P166 ?award .
@@ -72,6 +72,7 @@ export function buildAwardsQuery(imdbId: string): string {
     OPTIONAL { ?statement pq:P585 ?date }
     BIND("nominated" AS ?kind)
   }
+  OPTIONAL { ?article schema:about ?award ; schema:isPartOf <https://en.wikipedia.org/> . }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 }
 LIMIT ${QUERY_LIMIT}`;
@@ -155,6 +156,8 @@ interface SparqlBinding {
   date?: { value?: string };
   /** Absent on the film's own statements, present on a person's */
   personLabel?: { value?: string };
+  /** English Wikipedia article for the award category, where one exists */
+  article?: { value?: string };
 }
 
 /**
@@ -201,6 +204,12 @@ export function parseAwardsResponse(
         people: new Set<string>(),
       };
       collected.set(key, entry);
+    }
+
+    // Only https, because this ends up in an href
+    const article = row.article?.value?.trim();
+    if (article && /^https:\/\//.test(article) && !entry.award.url) {
+      entry.award.url = article;
     }
 
     const person = row.personLabel?.value?.trim();

@@ -179,6 +179,17 @@ The card splices into the host page's own layout rather than floating over it, s
 - Inline and floating are **separate components**, not one with a `variant` check throughout — they differ on nearly every line. `InlineSection` reproduces Netflix's own values exactly: 24px/400 headings with `48px 0 20px` margins, 14px/20px fact rows, `#777` labels, `#ddd` values, middot separators. No background, no border, no icons.
 - The shadow root's `:host` re-inherits `font-family` and `color` after `all: initial`. The reset is what keeps the site's CSS out, but it also reset the typeface to the browser default, which is why the inline section read as foreign however it was styled. For a section spliced into a site's layout, using that site's typeface is most of the work.
 
+### Outbound Links
+
+Every rating, award and recipient in the overlay is a link (`src/shared/utils/links.ts`, verified by `npm run verify:links`). Each URL shape was resolved against the live site before being used:
+
+- **IMDb** and **Letterboxd** are direct from the IMDb id. Letterboxd is the useful surprise — `letterboxd.com/imdb/{id}` redirects to the film's own page, so one id serves both.
+- **Rotten Tomatoes** and **Metacritic** publish no id we hold, and their slugs aren't derivable from a title (`the_big_short` happens to work; disambiguated and re-released titles don't). They get a search URL, which always lands somewhere useful, rather than a guessed slug that sometimes 404s.
+- **Awards** link to the English Wikipedia article, which Wikidata supplies alongside the award itself. Only `https://` URLs are accepted, since the value goes into an `href`.
+- An IMDb id is validated against `/^tt\d+$/` before being interpolated into a path.
+
+Award rows are not anchors: the title links to the award and the recipients beneath link to themselves, and nesting anchors is invalid — browsers resolve it by dropping the inner ones, which would silently kill the recipient links.
+
 ### Overlay Theming
 
 The card colours itself from the film's own poster (`usePosterPalette` → `src/shared/utils/color.ts`), so it reads as part of what you're looking at rather than as an extension bolted onto the page.
