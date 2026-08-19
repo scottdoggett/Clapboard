@@ -25,6 +25,7 @@ import {
   isTitleUrl,
   contentTypeFromUrl,
   parseJsonLd,
+  parseMetadataText,
   selectTitle,
   type TitleCandidate,
   type TitleInfo,
@@ -94,6 +95,12 @@ export function detectCurrentTitle(): TitleInfo | null {
   if (!isTitleUrl(config, url)) return null;
 
   const urlType = contentTypeFromUrl(config, url);
+
+  // The platform's own metadata line, where it has one. This is the only place
+  // a year comes from on most pages, and the year is what separates a remake
+  // from its original.
+  const metadata = readMetadata(config.selectors.metadata);
+
   const candidates: TitleCandidate[] = [];
 
   // Layer 1 — live DOM, ordered from most to least specific selector
@@ -117,7 +124,36 @@ export function detectCurrentTitle(): TitleInfo | null {
     candidates.push({ raw: docTitle, source: "documentTitle" });
   }
 
-  return selectTitle(candidates, urlType ?? detectContentType(site));
+  const info = selectTitle(
+    candidates,
+    urlType ?? metadata.type ?? detectContentType(site)
+  );
+
+  // A year read off the page beats none; a year already carried by a candidate
+  // (JSON-LD's release date) is more precise and keeps precedence.
+  return info && info.year === undefined && metadata.year !== undefined
+    ? { ...info, year: metadata.year }
+    : info;
+}
+
+/**
+ * Read the year and type out of the platform's metadata region.
+ *
+ * @param selectors - Candidate selectors for the metadata element
+ * @returns Whatever could be established from it
+ */
+function readMetadata(
+  selectors: readonly string[]
+): { year?: number; type?: "movie" | "series" } {
+  for (const selector of selectors) {
+    const text = safeQuerySelector(selector)?.textContent?.trim();
+    if (!text) continue;
+
+    const parsed = parseMetadataText(text);
+    if (parsed.year !== undefined || parsed.type !== undefined) return parsed;
+  }
+
+  return {};
 }
 
 /**

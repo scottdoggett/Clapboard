@@ -23,6 +23,7 @@ import {
   parseJsonLd,
   selectTitle,
   buildTitleInfo,
+  parseMetadataText,
 } from "../src/shared/utils/titleDetect";
 
 let failures = 0;
@@ -273,6 +274,56 @@ check(
   { title: "Dune", year: 2021, type: "movie" }
 );
 check("nav heading rejected", buildTitleInfo("Continue Watching"), null);
+
+// --- Metadata blurbs, captured from a live Netflix page --------------------
+// These twelve strings are verbatim textContent from a real browse/modal DOM.
+// Without a type, "Fargo" resolves to the 1996 film or the 2014 series at
+// random; without a year, so does every remake.
+
+const NOW = 2026;
+const meta = (text: string) => parseMetadataText(text, NOW);
+
+check("show with episode count", meta("Show•Documentary•2026•3 Episodes•TV-MA"), {
+  year: 2026,
+  type: "series",
+});
+check("film with runtime", meta("2h 10m2015RHDA group of wily opportunists make a fortune off"), {
+  year: 2015,
+  type: "movie",
+});
+check("limited series", meta("Limited Series2022TV-MAHDThis is the unbelievable story of C"), {
+  year: 2022,
+  type: "series",
+});
+check("short film runtime", meta("1h 34m2020TV-MAHDReady to do anything to get rich, a young m"), {
+  year: 2020,
+  type: "movie",
+});
+check("two hour film", meta("2h2005PG-13HDMarried life in the suburbs turns from lethally"), {
+  year: 2005,
+  type: "movie",
+});
+check("recent limited series", meta("Limited Series2024TV-MAHDOscar winner Regina King executive-"), {
+  year: 2024,
+  type: "series",
+});
+
+// A per-episode runtime must not make a series look like a film
+check("episode runtime does not imply a film", meta("Series 2022 45m TV-MA"), {
+  year: 2022,
+  type: "series",
+});
+
+// Bounds: a runtime, an episode count, or a number in prose must not be read
+// as a release year
+check("no year in a bare runtime", meta("2h 10m"), { year: undefined, type: "movie" });
+check("rejects an implausible year", meta("1204 Episodes"), { year: undefined, type: "series" });
+check("ignores digits inside a longer number", meta("12345"), { year: undefined, type: undefined });
+check("empty metadata", meta("   "), {});
+check("takes the first plausible year", meta("2015 R HD Set in 1929 during the crash"), {
+  year: 2015,
+  type: undefined,
+});
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

@@ -393,6 +393,63 @@ check(
   );
 }
 
+// --- Year and type from the modal's metadata -------------------------------
+// The gap the first live run left: {title: "The Big Short", year: undefined,
+// type: undefined}. Without a type, "Fargo" resolves to the 1996 film or the
+// 2014 series at random; without a year, so does every remake.
+{
+  const withMetadata = (metaText: string) => `<head><title>Fargo - Netflix</title></head>
+    <body><div data-uia="modal-motion-container-DETAIL_MODAL">
+      <img class="playerModel--player__storyArt" alt="Fargo">
+      <div data-uia="previewModal--detailsMetadata">${metaText}</div>
+    </div></body>`;
+
+  check(
+    "reads year and film type from the modal metadata",
+    await detect(
+      "https://www.netflix.com/browse?jbv=1",
+      withMetadata("1h 38m1996RHDA pregnant police chief investigates")
+    ),
+    { title: "Fargo", year: 1996, type: "movie" }
+  );
+
+  check(
+    "reads year and series type from the modal metadata",
+    await detect(
+      "https://www.netflix.com/browse?jbv=2",
+      withMetadata("5 Seasons2014TV-MAHDAn insurance salesman is drawn into")
+    ),
+    { title: "Fargo", year: 2014, type: "series" }
+  );
+
+  // Metadata fills a gap; it must not overrule a precise date from JSON-LD
+  check(
+    "JSON-LD's year takes precedence over the metadata line",
+    await detect(
+      "https://www.netflix.com/title/1",
+      `<head><title>Fargo - Netflix</title>
+       ${jsonLd({ "@type": "Movie", name: "Fargo", datePublished: "1996-03-08" })}</head>
+       <body><div data-uia="modal-motion-container-DETAIL_MODAL">
+         <img class="playerModel--player__storyArt" alt="Fargo">
+         <div data-uia="previewModal--detailsMetadata">2015 R HD</div>
+       </div></body>`
+    ),
+    { title: "Fargo", year: 1996, type: "movie" }
+  );
+
+  check(
+    "a page with no metadata region still detects",
+    await detect(
+      "https://www.netflix.com/browse?jbv=3",
+      `<head><title>Fargo - Netflix</title></head>
+       <body><div data-uia="modal-motion-container-DETAIL_MODAL">
+         <img class="playerModel--player__storyArt" alt="Fargo">
+       </div></body>`
+    ),
+    { title: "Fargo", year: undefined, type: undefined }
+  );
+}
+
 // --- Waiting for a late-rendering title ------------------------------------
 // The bug this replaced: Netflix inserts its modal container immediately and
 // fills in the story art afterwards, so waiting for the container then trying

@@ -29,11 +29,34 @@ const AWARD_ICONS: Record<string, string> = {
  * Awards badge component
  */
 /**
- * Total awards a record stands for. Our source reports counts rather than
- * individual categories, so one record can be worth several awards.
+ * Total awards a record stands for. A named award is worth one; the aggregate
+ * rows stand for everything the awards provider could not name individually.
  */
 function awardCount(award: Award): number {
   return award.count ?? 1;
+}
+
+/**
+ * Rows the backend synthesises to carry a remainder rather than name an award.
+ */
+const AGGREGATE_NAMES = new Set(["Other awards", "Nominations"]);
+
+/**
+ * Does this row name an actual award, or is it a remainder?
+ */
+function isSpecific(award: Award): boolean {
+  return !AGGREGATE_NAMES.has(award.name);
+}
+
+/**
+ * Ranking for the awards a reader is most likely to recognise, so the three
+ * that survive the collapsed view are the three worth showing.
+ */
+const PRESTIGE = ["Oscar", "Golden Globe", "BAFTA", "Primetime Emmy", "Emmy"];
+
+function prestige(award: Award): number {
+  const rank = PRESTIGE.indexOf(award.name);
+  return rank === -1 ? PRESTIGE.length : rank;
 }
 
 const AwardsBadge: React.FC<AwardsBadgeProps> = ({ awards }) => {
@@ -47,9 +70,20 @@ const AwardsBadge: React.FC<AwardsBadgeProps> = ({ awards }) => {
     .filter((a) => !a.isWin)
     .reduce((total, award) => total + awardCount(award), 0);
 
-  // Show wins first in the collapsed view — they're what people scan for
+  // Ordering matters because the collapsed view shows only three.
+  //
+  // Sorting by count alone put "Other awards — 153 wins" above every named
+  // Oscar, burying exactly the detail that makes this card worth reading. The
+  // aggregate rows stand for everything we could not name, so they belong at
+  // the bottom whatever their count, and the named awards lead with the ones a
+  // reader recognises.
   const sorted = [...awards].sort(
-    (a, b) => Number(b.isWin) - Number(a.isWin) || awardCount(b) - awardCount(a)
+    (a, b) =>
+      Number(b.isWin) - Number(a.isWin) ||
+      Number(isSpecific(b)) - Number(isSpecific(a)) ||
+      prestige(a) - prestige(b) ||
+      awardCount(b) - awardCount(a) ||
+      (a.category ?? "").localeCompare(b.category ?? "")
   );
   const displayedAwards = showAll ? sorted : sorted.slice(0, 3);
 

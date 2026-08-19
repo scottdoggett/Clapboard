@@ -429,3 +429,83 @@ export function selectTitle(
     type: winner.type ?? resolved.find((info) => info.type !== undefined)?.type,
   };
 }
+
+/**
+ * Read the year and content type out of a platform's metadata blurb.
+ *
+ * Every supported site renders a compact line of facts next to the title —
+ * "2h 10m 2015 R HD", "Limited Series 2022 TV-MA", "Show • Documentary • 2026
+ * • 3 Episodes". The separators and order vary by platform and by whether the
+ * title is a film or a series, but two things are consistent enough to rely
+ * on: a bare four-digit year, and a word that gives away which kind of thing
+ * it is.
+ *
+ * This matters more than it looks. Without a type, "Fargo" resolves to either
+ * the 1996 film or the 2014 series depending on which OMDb returns first, and
+ * without a year the same is true of every remake.
+ *
+ * @param text - Concatenated text of the metadata region
+ * @param now - Current year, for bounding what counts as a plausible release
+ * @returns Whatever could be established; fields are absent rather than guessed
+ */
+export function parseMetadataText(
+  text: string,
+  now: number = new Date().getFullYear()
+): { year?: number; type?: "movie" | "series" } {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  if (!cleaned) return {};
+
+  return { year: findYear(cleaned, now), type: findType(cleaned) };
+}
+
+/**
+ * Find a plausible release year.
+ *
+ * Anchored on non-digit boundaries so it can't take four digits out of a
+ * longer number, and bounded so a runtime, an episode count, or a year
+ * mentioned in a synopsis ("set in 1929") is less likely to win. Only the
+ * first match is used — platforms put the release year before any other date.
+ */
+function findYear(text: string, now: number): number | undefined {
+  for (const match of text.matchAll(/(?<!\d)(\d{4})(?!\d)/g)) {
+    const year = parseInt(match[1], 10);
+    if (year >= 1900 && year <= now + 2) return year;
+  }
+  return undefined;
+}
+
+/**
+ * Work out whether this is a film or a series.
+ *
+ * Two things make this harder than it looks. Netflix concatenates its metadata
+ * tokens with no separators — "Limited Series2022TV-MAHD", "2h2005PG-13HD" —
+ * so nothing here may depend on word boundaries. And the text usually has the
+ * synopsis run onto the end of it, so a film whose plot summary mentions a
+ * "series of events" would classify as a series if the markers were checked
+ * naively.
+ *
+ * Hence the order: a total runtime in hours is the strongest signal available,
+ * because a series listing shows seasons or episode counts rather than one
+ * duration. Only when there's no such runtime do the series markers get a say,
+ * which keeps a stray word in a synopsis from overriding a hard fact.
+ */
+function findType(text: string): "movie" | "series" | undefined {
+  // "2h", "2h 10m", "1h34m" — always a single film's total length
+  if (/\d+\s*h(?![a-z])/i.test(text)) return "movie";
+
+  if (
+    /\d+\s*(episode|season)s?/i.test(text) ||
+    /limited\s*series/i.test(text) ||
+    /mini\s*-?\s*series/i.test(text) ||
+    /series/i.test(text) ||
+    /(^|[^a-z])show([^a-z]|$)/i.test(text)
+  ) {
+    return "series";
+  }
+
+  // A bare minute count is a short film; an episode's runtime would have been
+  // caught by a series marker above
+  if (/\d+\s*m(in)?(?![a-z])/i.test(text)) return "movie";
+
+  return undefined;
+}

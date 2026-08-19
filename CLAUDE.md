@@ -60,7 +60,11 @@ Candidates are merged rather than raced: the first usable title wins, and fields
 
 When the URL says there's a title but nothing is readable yet, `waitForTitle` **polls the detector** rather than waiting for a container element to appear. Netflix inserts its modal container immediately and fills in the story art and tab title afterwards, so a container-triggered check ran while the title was still milliseconds away and gave up. The only reliable signal that a title is readable is reading it. Polling stops early if the user navigates away.
 
-Content type comes from the URL where the platform encodes it (`/movies/` vs `/series/`), otherwise from a `seriesIndicator` element, otherwise stays `undefined` — a missing episode list may just mean it hasn't rendered.
+Content type comes from the URL where the platform encodes it (`/movies/` vs `/series/`), then from the platform's **metadata line** (`selectors.metadata`), then from a `seriesIndicator` element, otherwise stays `undefined`.
+
+That metadata line is also where the **release year** comes from on most pages, and both fields matter more than they look: without a type, "Fargo" resolves to the 1996 film or the 2014 series depending on which OMDb returns first, and without a year the same is true of every remake.
+
+`parseMetadataText` has two non-obvious constraints, both taken from a live Netflix page. Netflix concatenates its metadata tokens with no separators — `Limited Series2022TV-MAHD`, `2h2005PG-13HD` — so nothing may depend on word boundaries. And the synopsis usually runs onto the end of the same text, so a film whose plot mentions a "series of events" would misclassify if the markers were checked naively. Hence the order: a runtime in hours is checked first, because a series listing shows seasons or episode counts rather than one duration.
 
 Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patterns, and selector candidate lists. Add its URL shapes to `scripts/verify-detection.ts` and a fixture page to `scripts/verify-dom.ts` at the same time.
 

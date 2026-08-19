@@ -59,6 +59,12 @@ export interface SiteSelectors {
   readonly overlayAnchor: readonly string[];
   /** Present only for series — an episode list or season picker */
   readonly seriesIndicator: readonly string[];
+  /**
+   * The compact line of facts beside the title — year, runtime, rating.
+   * Read for the release year and the movie/series distinction, both of
+   * which materially change which title OMDb resolves to.
+   */
+  readonly metadata: readonly string[];
 }
 
 /**
@@ -117,6 +123,12 @@ export const SUPPORTED_SITES = {
         ".watch-video",
       ],
       seriesIndicator: ['[data-uia="episode-list"]', ".episodeSelector", ".season-list"],
+      metadata: [
+        '[data-uia="modal-motion-container-DETAIL_MODAL"] [data-uia="previewModal--detailsMetadata"]',
+        '[data-uia="previewModal--detailsMetadata"]',
+        '[data-uia="modal-motion-container-DETAIL_MODAL"] .previewModal--detailsMetadata',
+        ".videoMetadata--container",
+      ],
     },
   },
   disneyPlus: {
@@ -150,6 +162,7 @@ export const SUPPORTED_SITES = {
         '[data-testid="season-select"]',
         '[data-testid="episode-list"]',
       ],
+      metadata: ['[data-testid="details-metadata"]', ".metadata", '[data-testid="hero-metadata"]'],
     },
   },
   primeVideo: {
@@ -180,6 +193,7 @@ export const SUPPORTED_SITES = {
         '[data-testid="episode-list"]',
         '[data-automation-id="season-selector"]',
       ],
+      metadata: ['[data-automation-id="meta-info"]', ".dv-node-dp-badges", ".release-year"],
     },
   },
   crave: {
@@ -196,6 +210,7 @@ export const SUPPORTED_SITES = {
       titleText: [".program-title", "[data-testid='content-title']", "h1"],
       overlayAnchor: [".program-details", "[data-testid='content-details']"],
       seriesIndicator: [".season-selector", ".episode-list", "[data-testid='episodes']"],
+      metadata: [".program-metadata", "[data-testid='content-metadata']"],
     },
   },
 } as const satisfies Record<string, SiteConfig>;
