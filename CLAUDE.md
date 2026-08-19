@@ -205,6 +205,15 @@ It lives in `chrome.storage.local`, and that copy is the one every toggle writes
 - `src/shared/utils/tileSummary.ts` holds what a tile *says* — which sources appear, in what order, formatted how — separate from the DOM writing, and verified by `npm run verify:tiles`. A tile is the one place a score is shown with no context around it: the source is four characters and the number is alone, so "87%" meaning a percentage and "8.8" meaning a ten-point scale is carried entirely by the formatting. Awards collapse to counts ("1 win · 4 noms"), gold when there are wins.
 - A tile knows only a name, so its lookup goes out with the title alone and its entry is keyed by title. When the lookup lands it hands the IMDb id back to the controls, so anything marked *after* that keys by id — and `updateEntry` migrates the earlier title-keyed entry onto it.
 
+### The Popup's List
+
+At hand-marked scale the list was a dozen titles you read; after an import it is several hundred you look *in*, which is a different tool. `src/shared/utils/libraryView.ts` holds the search, ordering and paging, verified by `npm run verify:library`.
+
+- **Nothing is capped silently.** The previous version rendered `slice(0, 40)` and said nothing about the rest, so importing 260 titles produced a list that looked like it held 40. It pages at `PAGE_SIZE` now and the button counts what is left.
+- **Search strips separators entirely, on both sides.** `normalizeTitle` collapses punctuation to a *space*, which is right for cache keys and wrong here — it leaves "Spider-Man" as "spider man", so "spiderman" finds nothing. Mutation testing caught exactly that: the test was written first and failed against the implementation.
+- **Every sort falls back to the title**, so the order is total. A list that reshuffles its unrated entries on every render is worse than one sorted by something arbitrary but stable. Undated and unrated entries sort *last* rather than reading as zero — an imported Netflix row carries no year at all, and there are hundreds of them.
+- The popup is 420x600 (Chrome caps a popup at 800x600) and no longer scrolls as one column: the list pane scrolls on its own, so reaching the list does not first push the tabs you are trying to use off the top.
+
 ### Importing a Watch History
 
 Most people arrive with years of viewing already recorded somewhere else, and a library that starts empty stays empty. The popup's Settings panel takes a CSV or a ZIP and folds it in (`src/shared/utils/importParse.ts`, verified by `npm run verify:import`).

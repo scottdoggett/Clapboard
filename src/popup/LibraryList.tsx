@@ -9,8 +9,13 @@
  * you have an account, and it is right even when the network is not.
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { listEntries, groupEntries, type LibraryEntry } from "@shared/utils/library";
+import {
+  buildListView,
+  SORT_MODES,
+  type SortMode,
+} from "@shared/utils/libraryView";
 import { ratingUrl } from "@shared/utils/links";
 
 type Tab = "watchlist" | "watched" | "reviewed";
@@ -24,6 +29,9 @@ const TABS: Array<{ id: Tab; label: string }> = [
 const LibraryList: React.FC<{ refreshKey: number }> = ({ refreshKey }) => {
   const [entries, setEntries] = useState<LibraryEntry[] | null>(null);
   const [tab, setTab] = useState<Tab>("watchlist");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortMode>("recent");
+  const [pages, setPages] = useState(1);
 
   useEffect(() => {
     let active = true;
@@ -35,10 +43,17 @@ const LibraryList: React.FC<{ refreshKey: number }> = ({ refreshKey }) => {
     };
   }, [refreshKey]);
 
-  if (entries === null) return <p style={muted}>Loading…</p>;
+  // Paging is per view: switching tab or narrowing the search should start
+  // again at the top rather than keep however far the last one was scrolled
+  useEffect(() => setPages(1), [tab, query, sort]);
 
-  const grouped = groupEntries(entries);
-  const shown = grouped[tab];
+  const grouped = useMemo(() => groupEntries(entries ?? []), [entries]);
+  const view = useMemo(
+    () => buildListView(grouped[tab], query, sort, pages),
+    [grouped, tab, query, sort, pages]
+  );
+
+  if (entries === null) return <p style={muted}>Loading…</p>;
 
   return (
     <div>
@@ -67,18 +82,71 @@ const LibraryList: React.FC<{ refreshKey: number }> = ({ refreshKey }) => {
         ))}
       </div>
 
-      {shown.length === 0 ? (
-        <p style={muted}>{emptyMessage(tab)}</p>
+      {/* Search and ordering only appear once the list is big enough to need
+          them — on a handful of titles they are two controls in the way */}
+      {grouped[tab].length > SEARCH_THRESHOLD && (
+        <>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={`Search ${grouped[tab].length.toLocaleString()} titles`}
+            style={search}
+          />
+
+          <div style={{ display: "flex", gap: "4px", margin: "8px 0 10px" }}>
+            {SORT_MODES.map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => setSort(id)}
+                style={{
+                  flex: 1,
+                  background: sort === id ? "rgba(255,255,255,0.08)" : "transparent",
+                  border: `1px solid ${sort === id ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.07)"}`,
+                  borderRadius: "4px",
+                  color: sort === id ? "#d2d2d2" : "#6b6b6b",
+                  padding: "4px 2px",
+                  fontSize: "11px",
+                  fontFamily: "inherit",
+                  cursor: "pointer",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {view.total === 0 ? (
+        <p style={muted}>
+          {query.trim() !== "" ? `Nothing matching “${query.trim()}”.` : emptyMessage(tab)}
+        </p>
       ) : (
-        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-          {shown.slice(0, 40).map((entry) => (
-            <EntryRow key={entry.key} entry={entry} showReview={tab === "reviewed"} />
-          ))}
-        </ul>
+        <>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {view.visible.map((entry) => (
+              <EntryRow key={entry.key} entry={entry} showReview={tab === "reviewed"} />
+            ))}
+          </ul>
+
+          {/* Whatever is held back is counted. A list that silently stops is
+              indistinguishable from a list that ends. */}
+          {view.remaining > 0 && (
+            <button style={moreButton} onClick={() => setPages((count) => count + 1)}>
+              Show {Math.min(view.remaining, 60).toLocaleString()} more ·{" "}
+              {view.remaining.toLocaleString()} left
+            </button>
+          )}
+        </>
       )}
     </div>
   );
 };
+
+/**
+ * Below this many entries, a search box is clutter rather than help.
+ */
+const SEARCH_THRESHOLD = 12;
 
 const EntryRow: React.FC<{ entry: LibraryEntry; showReview: boolean }> = ({
   entry,
@@ -182,6 +250,31 @@ const muted: React.CSSProperties = {
   fontSize: "12px",
   lineHeight: "17px",
   margin: "12px 0",
+};
+
+const search: React.CSSProperties = {
+  width: "100%",
+  background: "rgba(0, 0, 0, 0.4)",
+  border: "1px solid rgba(255, 255, 255, 0.12)",
+  borderRadius: "4px",
+  color: "#fff",
+  padding: "7px 10px",
+  fontSize: "12px",
+  fontFamily: "inherit",
+  boxSizing: "border-box",
+};
+
+const moreButton: React.CSSProperties = {
+  width: "100%",
+  marginTop: "10px",
+  background: "transparent",
+  border: "1px solid rgba(255, 255, 255, 0.14)",
+  borderRadius: "4px",
+  color: "#8c8c8c",
+  padding: "7px 10px",
+  fontSize: "12px",
+  fontFamily: "inherit",
+  cursor: "pointer",
 };
 
 export default LibraryList;

@@ -12,7 +12,12 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import type { Message, MessageResponse, MessageResponseMap, ExtensionStatus } from "@shared/types/messages";
+import type {
+  Message,
+  MessageResponse,
+  MessageResponseMap,
+  ExtensionStatus,
+} from "@shared/types/messages";
 import { SUPPORTED_SITES } from "@shared/constants";
 import AuthPanel from "./AuthPanel";
 import LibraryList from "./LibraryList";
@@ -24,7 +29,7 @@ interface AppProps {
 }
 
 async function sendMessage<T extends Message>(
-  message: T
+  message: T,
 ): Promise<MessageResponseMap[T["type"]]> {
   const response: MessageResponse = await chrome.runtime.sendMessage(message);
   if (!response.success) throw new Error(response.error || "Unknown error");
@@ -57,13 +62,15 @@ const App: React.FC<AppProps> = ({ hasConvex = false }) => {
   useEffect(() => {
     void load();
 
-    void chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
-      const url = tab?.url ?? "";
-      const match = Object.values(SUPPORTED_SITES).find((config) =>
-        config.hostPatterns.some((pattern) => url.includes(pattern))
-      );
-      setSite(match?.name ?? null);
-    });
+    void chrome.tabs
+      .query({ active: true, currentWindow: true })
+      .then(([tab]) => {
+        const url = tab?.url ?? "";
+        const match = Object.values(SUPPORTED_SITES).find((config) =>
+          config.hostPatterns.some((pattern) => url.includes(pattern)),
+        );
+        setSite(match?.name ?? null);
+      });
   }, [load]);
 
   const setEnabled = async (enabled: boolean): Promise<void> => {
@@ -72,7 +79,10 @@ const App: React.FC<AppProps> = ({ hasConvex = false }) => {
   };
 
   const saveUrl = async (): Promise<void> => {
-    await sendMessage({ type: "UPDATE_SETTINGS", payload: { convexUrl: urlDraft.trim() } });
+    await sendMessage({
+      type: "UPDATE_SETTINGS",
+      payload: { convexUrl: urlDraft.trim() },
+    });
     setNote("Saved. Reopen the popup to sign in against the new deployment.");
     await load();
   };
@@ -85,101 +95,114 @@ const App: React.FC<AppProps> = ({ hasConvex = false }) => {
 
   return (
     <div style={shell}>
-      <header style={header}>
-        <div>
-          <h1 style={wordmark}>Clapboard</h1>
-          <p style={{ ...muted, margin: "2px 0 0" }}>
-            {site ? `On ${site}` : "Open a streaming site to see ratings"}
-          </p>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          {status && (
-            <Toggle
-              on={status.enabled}
-              onChange={(value) => void setEnabled(value)}
-              label={status.enabled ? "Overlay on" : "Overlay off"}
-            />
-          )}
-          <IconButton
-            label="Settings"
-            active={showSettings}
-            onClick={() => setShowSettings(!showSettings)}
-          >
-            <GearIcon />
-          </IconButton>
-        </div>
-      </header>
-
-      {error && <Section><p style={warning}>{error}</p></Section>}
-
-      {showSettings && (
-        <Section title="Settings">
-          <label style={{ ...muted, display: "block", marginBottom: "4px" }}>
-            Convex deployment URL
-          </label>
-          <input
-            value={urlDraft}
-            onChange={(event) => setUrlDraft(event.target.value)}
-            placeholder="https://your-deployment.convex.cloud"
-            style={input}
-          />
-          <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
-            <button style={primaryButton} onClick={() => void saveUrl()}>
-              Save
-            </button>
-            <button style={secondaryButton} onClick={() => void clearCache()}>
-              Clear cache
-            </button>
+      <div style={upper}>
+        <header style={header}>
+          <div>
+            <h1 style={wordmark}>Clapboard</h1>
+            <p style={{ ...muted, margin: "2px 0 0" }}>
+              {site ? `On ${site}` : "Open a streaming site to see ratings"}
+            </p>
           </div>
 
-          {note && <p style={{ ...muted, marginTop: "8px" }}>{note}</p>}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            {status && (
+              <Toggle
+                on={status.enabled}
+                onChange={(value) => void setEnabled(value)}
+                label={status.enabled ? "Overlay on" : "Overlay off"}
+              />
+            )}
+            <IconButton
+              label="Settings"
+              active={showSettings}
+              onClick={() => setShowSettings(!showSettings)}
+            >
+              <GearIcon />
+            </IconButton>
+          </div>
+        </header>
 
-          <SubHeading>Import a watch history</SubHeading>
-          <ImportPanel
-            onImported={(summary) => {
-              setRefreshKey((key) => key + 1);
-
-              // An import can add thousands of entries; push them to the
-              // account straight away rather than waiting for the next sign-in
-              if (summary.added + summary.updated > 0) {
-                void sendMessage({ type: "SYNC_LIBRARY" }).catch(() => undefined);
-              }
-            }}
-          />
-
-          <p style={{ ...muted, marginTop: "14px" }}>
-            {status?.cacheSize ?? 0} cached lookups · v{status?.version ?? "—"}
-          </p>
-        </Section>
-      )}
-
-      <Section title="Account">
-        {hasConvex ? (
-          <AuthPanel
-            onSignedIn={() => {
-              // Merge rather than replace, so a list built signed out survives
-              void sendMessage({ type: "SYNC_LIBRARY" })
-                .then((result) =>
-                  setNote(
-                    result ? `Synced ${result.entries} titles to your account.` : null
-                  )
-                )
-                .catch(() => setNote("Signed in, but syncing failed."))
-                .finally(() => setRefreshKey((key) => key + 1));
-            }}
-          />
-        ) : (
-          <p style={muted}>
-            Set a deployment URL in Settings to enable accounts. Your list works
-            without one.
-          </p>
+        {error && (
+          <Section>
+            <p style={warning}>{error}</p>
+          </Section>
         )}
-      </Section>
 
-      <Section title="Your list">
-        <LibraryList refreshKey={refreshKey} />
-      </Section>
+        {showSettings && (
+          <Section title="Settings">
+            <label style={{ ...muted, display: "block", marginBottom: "4px" }}>
+              Convex deployment URL
+            </label>
+            <input
+              value={urlDraft}
+              onChange={(event) => setUrlDraft(event.target.value)}
+              placeholder="https://your-deployment.convex.cloud"
+              style={input}
+            />
+            <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+              <button style={primaryButton} onClick={() => void saveUrl()}>
+                Save
+              </button>
+              <button style={secondaryButton} onClick={() => void clearCache()}>
+                Clear cache
+              </button>
+            </div>
+
+            {note && <p style={{ ...muted, marginTop: "8px" }}>{note}</p>}
+
+            <SubHeading>Import a watch history</SubHeading>
+            <ImportPanel
+              onImported={(summary) => {
+                setRefreshKey((key) => key + 1);
+
+                // An import can add thousands of entries; push them to the
+                // account straight away rather than waiting for the next sign-in
+                if (summary.added + summary.updated > 0) {
+                  void sendMessage({ type: "SYNC_LIBRARY" }).catch(
+                    () => undefined,
+                  );
+                }
+              }}
+            />
+
+            <p style={{ ...muted, marginTop: "14px" }}>
+              {status?.cacheSize ?? 0} cached lookups · v
+              {status?.version ?? "—"}
+            </p>
+          </Section>
+        )}
+
+        <Section title="Account">
+          {hasConvex ? (
+            <AuthPanel
+              onSignedIn={() => {
+                // Merge rather than replace, so a list built signed out survives
+                void sendMessage({ type: "SYNC_LIBRARY" })
+                  .then((result) =>
+                    setNote(
+                      result
+                        ? `Synced ${result.entries} titles to your account.`
+                        : null,
+                    ),
+                  )
+                  .catch(() => setNote("Signed in, but syncing failed."))
+                  .finally(() => setRefreshKey((key) => key + 1));
+              }}
+            />
+          ) : (
+            <p style={muted}>
+              Set a deployment URL in Settings to enable accounts. Your list
+              works without one.
+            </p>
+          )}
+        </Section>
+      </div>
+
+      <div style={listPane}>
+        <Section title="Your list">
+          <LibraryList refreshKey={refreshKey} />
+        </Section>
+      </div>
     </div>
   );
 };
@@ -288,7 +311,17 @@ const IconButton: React.FC<{
 );
 
 const GearIcon: React.FC = () => (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <svg
+    viewBox="0 0 24 24"
+    width="15"
+    height="15"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.7"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
     <circle cx="12" cy="12" r="3" />
     <path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1A1.7 1.7 0 008.9 19a1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1A1.7 1.7 0 005 8.9a1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H10a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V10a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" />
   </svg>
@@ -296,14 +329,41 @@ const GearIcon: React.FC = () => (
 
 // --- Styles ----------------------------------------------------------------
 
+/**
+ * Chrome caps a popup at 800x600 and this takes the full height, because an
+ * imported watch history runs to hundreds of titles and the previous 340x580
+ * spent most of itself on the sections above the list.
+ *
+ * The shell no longer scrolls as one column. It is a flex column with a fixed
+ * header and a list pane that scrolls on its own, so scrolling the list does
+ * not first have to push the header, the account panel and settings off the
+ * top — which, with a long list, meant the tabs you were trying to use went
+ * out of view the moment you used them.
+ */
 const shell: React.CSSProperties = {
-  width: "340px",
-  maxHeight: "580px",
-  overflowY: "auto",
+  width: "420px",
+  height: "600px",
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
   background: "#0f0f10",
   color: "#fff",
   fontFamily:
     '"Netflix Sans", "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+};
+
+/** Everything above the list: scrolls only if settings makes it too tall. */
+const upper: React.CSSProperties = {
+  flexShrink: 0,
+  maxHeight: "62%",
+  overflowY: "auto",
+};
+
+/** The list pane, which takes the rest of the height and scrolls in place. */
+const listPane: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: "auto",
 };
 
 const header: React.CSSProperties = {
