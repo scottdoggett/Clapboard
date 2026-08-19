@@ -207,7 +207,7 @@ It lives in `chrome.storage.local`, and that copy is the one every toggle writes
 
 ### Importing a Watch History
 
-Most people arrive with years of viewing already recorded somewhere else, and a library that starts empty stays empty. The popup takes a CSV or a ZIP and folds it in (`src/shared/utils/importParse.ts`, verified by `npm run verify:import`).
+Most people arrive with years of viewing already recorded somewhere else, and a library that starts empty stays empty. The popup's Settings panel takes a CSV or a ZIP and folds it in (`src/shared/utils/importParse.ts`, verified by `npm run verify:import`).
 
 **Columns are matched by name, never by position.** Four services, four column orders, and no two agree — but the names are stable enough to match on against a synonym list. It also means a format nobody has seen still imports, which is the only realistic answer for Prime Video and Disney+, neither of which offers a simple export at all.
 

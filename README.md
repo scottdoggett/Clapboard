@@ -20,7 +20,7 @@ Clapboard overlays a lightweight card on supported streaming sites that shows:
 
 Ratings and the watchlist / watched / liked controls also sit under every tile in the browse grid, so a row can be judged without opening anything.
 
-Your own list — watchlist, watched, ratings, reviews — lives in the extension and works signed out. **Bring it with you:** the popup imports a Netflix viewing-activity CSV, a Letterboxd export ZIP (ratings, reviews and watchlist included), an IMDb ratings or watchlist export, or any CSV with a title column. Files are read in the browser and never uploaded anywhere.
+Your own list — watchlist, watched, ratings, reviews — lives in the extension and works signed out. **Bring it with you:** the popup's Settings panel (the gear) imports a Netflix viewing-activity CSV, a Letterboxd export ZIP (ratings, reviews and watchlist included), an IMDb ratings or watchlist export, or any CSV with a title column. Files are read in the browser and never uploaded anywhere.
 
 ---
 

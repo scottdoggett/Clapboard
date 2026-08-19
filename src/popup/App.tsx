@@ -1,7 +1,9 @@
 /**
  * Clapboard Popup
  *
- * Three things: your lists, your account, and settings.
+ * Three things: your lists, your account, and settings — with importing a
+ * watch history under settings, since it is a thing you do once when you
+ * arrive rather than something to look at every time the popup opens.
  *
  * Styled to the same restraint as the overlay — near-black, hairline borders,
  * a little shadow for depth, and no colour beyond greyscale. The extension
@@ -133,7 +135,20 @@ const App: React.FC<AppProps> = ({ hasConvex = false }) => {
 
           {note && <p style={{ ...muted, marginTop: "8px" }}>{note}</p>}
 
-          <p style={{ ...muted, marginTop: "10px" }}>
+          <SubHeading>Import a watch history</SubHeading>
+          <ImportPanel
+            onImported={(summary) => {
+              setRefreshKey((key) => key + 1);
+
+              // An import can add thousands of entries; push them to the
+              // account straight away rather than waiting for the next sign-in
+              if (summary.added + summary.updated > 0) {
+                void sendMessage({ type: "SYNC_LIBRARY" }).catch(() => undefined);
+              }
+            }}
+          />
+
+          <p style={{ ...muted, marginTop: "14px" }}>
             {status?.cacheSize ?? 0} cached lookups · v{status?.version ?? "—"}
           </p>
         </Section>
@@ -162,26 +177,35 @@ const App: React.FC<AppProps> = ({ hasConvex = false }) => {
         )}
       </Section>
 
-      <Section title="Import">
-        <ImportPanel
-          onImported={(summary) => {
-            setRefreshKey((key) => key + 1);
-
-            // An import can add thousands of entries; push them to the account
-            // straight away rather than waiting for the next sign-in
-            if (summary.added + summary.updated > 0) {
-              void sendMessage({ type: "SYNC_LIBRARY" }).catch(() => undefined);
-            }
-          }}
-        />
-      </Section>
-
       <Section title="Your list">
         <LibraryList refreshKey={refreshKey} />
       </Section>
     </div>
   );
 };
+
+/**
+ * Splits a section into groups.
+ *
+ * Settings holds two unrelated things — where the backend is, and bringing a
+ * history in — and one unbroken column of controls reads as one operation.
+ */
+const SubHeading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <h3
+    style={{
+      margin: "16px 0 8px",
+      paddingTop: "14px",
+      borderTop: "1px solid rgba(255, 255, 255, 0.06)",
+      fontSize: "11px",
+      fontWeight: 400,
+      letterSpacing: "0.09em",
+      textTransform: "uppercase",
+      color: "#8c8c8c",
+    }}
+  >
+    {children}
+  </h3>
+);
 
 const Section: React.FC<{ title?: string; children: React.ReactNode }> = ({
   title,
