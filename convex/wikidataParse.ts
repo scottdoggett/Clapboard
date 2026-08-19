@@ -30,11 +30,13 @@ import type { ParsedAward } from "./omdbParse";
 export const WIKIDATA_ENDPOINT = "https://query.wikidata.org/sparql";
 
 /**
- * Cap on rows. A heavily decorated film can carry well over a hundred award
- * statements, and the overlay shows a handful — fetching the rest is work
- * nobody sees.
+ * Cap on rows.
+ *
+ * Higher than it looks because each award can produce several rows: the film's
+ * own statement plus one per person who shared it. Best Picture alone can be
+ * four producers.
  */
-const QUERY_LIMIT = 60;
+const QUERY_LIMIT = 140;
 
 /**
  * Build the SPARQL query for one film's awards.
@@ -51,7 +53,7 @@ export function buildAwardsQuery(imdbId: string): string {
   // belt and braces against a malformed one reaching the query.
   const safeId = imdbId.replace(/[^A-Za-z0-9]/g, "");
 
-  return `SELECT ?awardLabel ?kind ?date WHERE {
+  return `SELECT ?awardLabel ?kind ?date ?personLabel WHERE {
   ?film wdt:P345 "${safeId}" .
   {
     ?film p:P166 ?statement . ?statement ps:P166 ?award .
@@ -59,6 +61,14 @@ export function buildAwardsQuery(imdbId: string): string {
     BIND("won" AS ?kind)
   } UNION {
     ?film p:P1411 ?statement . ?statement ps:P1411 ?award .
+    OPTIONAL { ?statement pq:P585 ?date }
+    BIND("nominated" AS ?kind)
+  } UNION {
+    ?person p:P166 ?statement . ?statement ps:P166 ?award ; pq:P1686 ?film .
+    OPTIONAL { ?statement pq:P585 ?date }
+    BIND("won" AS ?kind)
+  } UNION {
+    ?person p:P1411 ?statement . ?statement ps:P1411 ?award ; pq:P1686 ?film .
     OPTIONAL { ?statement pq:P585 ?date }
     BIND("nominated" AS ?kind)
   }
@@ -143,6 +153,8 @@ interface SparqlBinding {
   awardLabel?: { value?: string };
   kind?: { value?: string };
   date?: { value?: string };
+  /** Absent on the film's own statements, present on a person's */
+  personLabel?: { value?: string };
 }
 
 /**
@@ -161,8 +173,11 @@ export function parseAwardsResponse(
   fallbackYear: number
 ): ParsedAward[] {
   const bindings = readBindings(json);
-  const seen = new Set<string>();
-  const awards: ParsedAward[] = [];
+
+  // Keyed by the award itself, because the same award arrives on several rows:
+  // once from the film's own statement and once per person who shared it. Best
+  // Picture alone can be four producers.
+  const collected = new Map<string, { award: ParsedAward; people: Set<string> }>();
 
   for (const row of bindings) {
     const label = row.awardLabel?.value?.trim();
@@ -177,13 +192,24 @@ export function parseAwardsResponse(
 
     const isWin = row.kind?.value === "won";
     const year = parseCeremonyYear(row.date?.value) ?? fallbackYear;
-
     const key = `${name}|${category ?? ""}|${isWin}|${year}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
 
-    awards.push({ name, category, year, isWin, count: 1 });
+    let entry = collected.get(key);
+    if (!entry) {
+      entry = {
+        award: { name, category, year, isWin, count: 1 },
+        people: new Set<string>(),
+      };
+      collected.set(key, entry);
+    }
+
+    const person = row.personLabel?.value?.trim();
+    if (person && !/^Q\d+$/.test(person)) entry.people.add(person);
   }
+
+  const awards = [...collected.values()].map(({ award, people }) =>
+    people.size > 0 ? { ...award, people: [...people].sort() } : award
+  );
 
   // Winning an award means being nominated for it, and Wikidata records both
   // statements. Showing "Oscar — Best Cinematography" as won *and* nominated

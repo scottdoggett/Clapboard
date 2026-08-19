@@ -4,15 +4,15 @@
  * The overlay as a section of the host page rather than a card on top of it.
  *
  * Every value here was measured off Netflix's own DOM so this matches rather
- * than approximates: their section headings are 24px/400 with `48px 0 20px`
- * margins, and their fact rows are 14px on a 20px line with a `#777` label and
- * a `#ddd` value. Reusing those exact numbers is the whole point — a panel
- * with its own background, borders and icons reads as something pasted into
- * the page no matter how carefully it's styled.
+ * than approximates: section headings are 24px/400 with `48px 0 20px` margins,
+ * fact rows are 14px on a 20px line with a `#777` label, and the panels reuse
+ * the exact grey their "More Like This" cards paint behind a synopsis —
+ * `rgb(47,47,47)` on a 4px radius with `#d2d2d2` text.
  *
- * So: no background, no border, no rounded corners, no emoji. The floating
- * variant (`OverlayCard`) keeps all of that, because a card that genuinely
- * floats over the page should look like one.
+ * No emoji and no colour beyond that greyscale: the point is to look like a
+ * part of the site, and the site is monochrome here. The floating variant
+ * (`OverlayCard`) keeps the poster palette and card chrome, which is right for
+ * something that genuinely floats.
  */
 
 import React, { useState } from "react";
@@ -28,12 +28,14 @@ interface InlineSectionProps {
   aiScores?: AiScoresState | null;
 }
 
-/** Netflix's own colours for a label/value pair. */
+/** Netflix's own values, measured from the live page. */
+const PANEL_BG = "rgb(47, 47, 47)";
+const PANEL_RADIUS = "4px";
 const LABEL_COLOR = "#777";
-const VALUE_COLOR = "#ddd";
+const BODY_COLOR = "#d2d2d2";
 
-/** How many named awards to list before collapsing the rest into a count. */
-const AWARD_PREVIEW = 4;
+/** Named awards shown before the list collapses. */
+const AWARD_PREVIEW = 5;
 
 const InlineSection: React.FC<InlineSectionProps> = ({
   movie,
@@ -44,16 +46,12 @@ const InlineSection: React.FC<InlineSectionProps> = ({
   const [showAllAwards, setShowAllAwards] = useState(false);
   const [showScores, setShowScores] = useState(false);
 
-  const named = movie.awards?.filter(isNamed) ?? [];
-  const wins = named.filter((award) => award.isWin);
-  const nominations = named.filter((award) => !award.isWin);
+  const named = (movie.awards ?? []).filter(isNamed);
   const totals = awardTotals(movie.awards ?? []);
-
-  const visibleWins = showAllAwards ? wins : wins.slice(0, AWARD_PREVIEW);
-  const visibleNominations = showAllAwards ? nominations : [];
+  const visible = showAllAwards ? named : named.slice(0, AWARD_PREVIEW);
 
   return (
-    <section className="cb-w-full" style={{ fontFamily: "inherit" }}>
+    <section className="cb-w-full">
       <h3
         style={{
           fontSize: "24px",
@@ -66,88 +64,178 @@ const InlineSection: React.FC<InlineSectionProps> = ({
         Ratings &amp; Awards
       </h3>
 
+      {/* Ratings, one panel each */}
       {ratings.length > 0 && (
-        <Row label="Ratings:">
-          {joinWithDot(
-            sortRatingsByPriority(ratings).map((rating) => (
-              <span key={rating.source}>
-                {RATING_SOURCES[rating.source]?.name ?? rating.source}{" "}
-                <span style={{ color: "#fff" }}>{formatScore(rating)}</span>
-              </span>
-            ))
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(${Math.min(ratings.length + (averageScore !== null ? 1 : 0), 4)}, minmax(0, 1fr))`,
+            gap: "8px",
+            marginBottom: "8px",
+          }}
+        >
+          {sortRatingsByPriority(ratings).map((rating) => (
+            <Panel key={rating.source}>
+              <div style={{ color: LABEL_COLOR, fontSize: "13px", marginBottom: "4px" }}>
+                {RATING_SOURCES[rating.source]?.name ?? rating.source}
+              </div>
+              <div style={{ color: "#fff", fontSize: "20px", lineHeight: "24px" }}>
+                {formatScore(rating)}
+              </div>
+            </Panel>
+          ))}
+
+          {averageScore !== null && (
+            <Panel>
+              <div style={{ color: LABEL_COLOR, fontSize: "13px", marginBottom: "4px" }}>
+                Overall
+              </div>
+              <div style={{ color: "#fff", fontSize: "20px", lineHeight: "24px" }}>
+                {averageScore}{" "}
+                <span style={{ color: BODY_COLOR, fontSize: "14px" }}>
+                  {getScoreTier(averageScore)}
+                </span>
+              </div>
+            </Panel>
           )}
-        </Row>
+        </div>
       )}
 
-      {averageScore !== null && (
-        <Row label="Overall:">
-          <span style={{ color: "#fff" }}>{averageScore}</span> · {getScoreTier(averageScore)}
-        </Row>
-      )}
-
-      {visibleWins.length > 0 && (
-        <Row label="Won:">{joinWithDot(visibleWins.map(awardText))}</Row>
-      )}
-
-      {visibleNominations.length > 0 && (
-        <Row label="Nominated:">{joinWithDot(visibleNominations.map(awardText))}</Row>
-      )}
-
-      {(totals.wins > 0 || totals.nominations > 0) && (
-        <Row label="Total:">
-          {[
-            totals.wins > 0 ? `${totals.wins} ${plural(totals.wins, "win")}` : null,
-            totals.nominations > 0
-              ? `${totals.nominations} ${plural(totals.nominations, "nomination")}`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </Row>
-      )}
-
-      {named.length > AWARD_PREVIEW && (
-        <TextButton onClick={() => setShowAllAwards(!showAllAwards)}>
-          {showAllAwards ? "Show less" : `Show all ${named.length} awards`}
-        </TextButton>
-      )}
-
-      {aiScores && (
-        <>
-          <TextButton
-            onClick={() => {
-              const next = !showScores;
-              setShowScores(next);
-              if (next) aiScores.onRequest();
+      {/* Awards, with who actually received each one */}
+      {(named.length > 0 || totals.wins > 0 || totals.nominations > 0) && (
+        <Panel>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              marginBottom: named.length > 0 ? "12px" : 0,
             }}
           >
-            {showScores ? "Hide AI analysis" : "Show AI analysis"}
-          </TextButton>
+            <span style={{ color: "#fff", fontSize: "16px" }}>Awards</span>
+            <span style={{ color: LABEL_COLOR, fontSize: "13px" }}>
+              {[
+                totals.wins > 0 ? `${totals.wins} ${plural(totals.wins, "win")}` : null,
+                totals.nominations > 0
+                  ? `${totals.nominations} ${plural(totals.nominations, "nomination")}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          </div>
 
-          {showScores && <AiRows state={aiScores} />}
-        </>
+          {visible.map((award) => (
+            <AwardRow key={`${award.name}-${award.category ?? ""}-${award.year}`} award={award} />
+          ))}
+
+          {named.length > AWARD_PREVIEW && (
+            <TextButton onClick={() => setShowAllAwards(!showAllAwards)}>
+              {showAllAwards ? "Show less" : `Show all ${named.length} awards`}
+            </TextButton>
+          )}
+        </Panel>
+      )}
+
+      {/* AI analysis, opened on demand because generating it costs a real call */}
+      {aiScores && (
+        <div style={{ marginTop: "8px" }}>
+          <Panel>
+            <button
+              onClick={() => {
+                const next = !showScores;
+                setShowScores(next);
+                if (next) aiScores.onRequest();
+              }}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                width: "100%",
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: "16px",
+                color: "#fff",
+              }}
+            >
+              <span>AI review analysis</span>
+              <span style={{ color: LABEL_COLOR, fontSize: "13px" }}>
+                {showScores ? "Hide" : "Show"}
+              </span>
+            </button>
+
+            {showScores && (
+              <div style={{ marginTop: "12px" }}>
+                <AiDetail state={aiScores} />
+              </div>
+            )}
+          </Panel>
+        </div>
       )}
     </section>
   );
 };
 
 /**
- * One fact row, matching `.previewModal--tags` exactly.
+ * A panel in the grey Netflix paints behind its own card synopses.
  */
-const Row: React.FC<{ label: string; children: React.ReactNode }> = ({
-  label,
-  children,
-}) => (
-  <div style={{ fontSize: "14px", lineHeight: "20px", margin: "7px 7px 7px 0" }}>
-    <span style={{ color: LABEL_COLOR }}>{label}</span>{" "}
-    <span style={{ color: VALUE_COLOR }}>{children}</span>
+const Panel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div
+    style={{
+      background: PANEL_BG,
+      borderRadius: PANEL_RADIUS,
+      padding: "14px",
+      fontSize: "14px",
+      lineHeight: "20px",
+      color: BODY_COLOR,
+    }}
+  >
+    {children}
   </div>
 );
 
 /**
- * A text-only control. Netflix has no button chrome in this part of the modal,
- * so neither does this.
+ * One award: what it was, and who actually received it.
+ *
+ * The recipients are the point of this row. "Won 4 Oscars" is a fact about a
+ * film; "Adam McKay and Charles Randolph won Best Adapted Screenplay" is a
+ * fact about people, and it is the one worth reading.
  */
+const AwardRow: React.FC<{ award: Award }> = ({ award }) => (
+  <div style={{ display: "flex", gap: "12px", padding: "4px 0", alignItems: "baseline" }}>
+    <span
+      style={{
+        color: LABEL_COLOR,
+        fontSize: "12px",
+        width: "34px",
+        flexShrink: 0,
+        textTransform: "uppercase",
+        letterSpacing: "0.04em",
+      }}
+    >
+      {award.isWin ? "Won" : "Nom"}
+    </span>
+
+    <span style={{ flex: 1, minWidth: 0 }}>
+      <span style={{ color: "#fff" }}>{award.name}</span>
+      {award.category ? <span style={{ color: BODY_COLOR }}> {award.category}</span> : null}
+      {award.count && award.count > 1 ? (
+        <span style={{ color: LABEL_COLOR }}> ×{award.count}</span>
+      ) : null}
+      {award.people && award.people.length > 0 ? (
+        <div style={{ color: LABEL_COLOR, fontSize: "13px" }}>
+          {award.people.join(", ")}
+        </div>
+      ) : null}
+    </span>
+
+    <span style={{ color: LABEL_COLOR, fontSize: "13px", flexShrink: 0 }}>{award.year}</span>
+  </div>
+);
+
 const TextButton: React.FC<{ onClick: () => void; children: React.ReactNode }> = ({
   onClick,
   children,
@@ -155,15 +243,14 @@ const TextButton: React.FC<{ onClick: () => void; children: React.ReactNode }> =
   <button
     onClick={onClick}
     style={{
-      fontSize: "14px",
-      lineHeight: "20px",
-      margin: "7px 14px 7px 0",
+      marginTop: "8px",
       color: LABEL_COLOR,
       background: "none",
       border: "none",
       padding: 0,
       cursor: "pointer",
       fontFamily: "inherit",
+      fontSize: "14px",
     }}
     onMouseEnter={(event) => (event.currentTarget.style.color = "#fff")}
     onMouseLeave={(event) => (event.currentTarget.style.color = LABEL_COLOR)}
@@ -172,71 +259,72 @@ const TextButton: React.FC<{ onClick: () => void; children: React.ReactNode }> =
   </button>
 );
 
-/**
- * AI category scores, as further fact rows rather than as bars.
- */
-const AiRows: React.FC<{ state: AiScoresState }> = ({ state }) => {
-  if (state.isLoading) return <Row label="AI analysis:">Reading reviews…</Row>;
-  if (state.error) return <Row label="AI analysis:">Unavailable</Row>;
-  if (state.isPending) return <Row label="AI analysis:">Already in progress</Row>;
-  if (state.retryAfterMs !== null) return <Row label="AI analysis:">Limit reached</Row>;
-  if (!state.result) return <Row label="AI analysis:">Not enough published reviews</Row>;
+const AiDetail: React.FC<{ state: AiScoresState }> = ({ state }) => {
+  if (state.isLoading) return <Note>Reading reviews… this takes a moment the first time.</Note>;
+  if (state.error) return <Note>Couldn&apos;t generate scores: {state.error.message}</Note>;
+  if (state.isPending) return <Note>Already being scored. Reopen in a moment.</Note>;
+  if (state.retryAfterMs !== null) return <Note>Scoring limit reached. Try again later.</Note>;
+  if (!state.result) return <Note>Not enough published reviews to score this one.</Note>;
 
-  return <AiScoreRows result={state.result} />;
+  return <AiScores result={state.result} />;
 };
 
-const AiScoreRows: React.FC<{ result: AiScoreResult }> = ({ result }) => {
+const Note: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div style={{ color: LABEL_COLOR, fontSize: "14px" }}>{children}</div>
+);
+
+const AiScores: React.FC<{ result: AiScoreResult }> = ({ result }) => {
   const entries = Object.entries(result.scores).filter(
     ([, value]) => typeof value === "number"
   ) as Array<[string, number]>;
 
   return (
     <>
-      {result.summary && <Row label="Consensus:">{result.summary}</Row>}
-      {entries.length > 0 && (
-        <Row label="Scores:">
-          {joinWithDot(
-            entries.map(([category, value]) => (
-              <span key={category}>
-                {capitalize(category)} <span style={{ color: "#fff" }}>{value.toFixed(1)}</span>
-              </span>
-            ))
-          )}
-        </Row>
+      {result.summary && (
+        <p style={{ color: BODY_COLOR, margin: "0 0 12px" }}>{result.summary}</p>
       )}
+
+      {entries.map(([category, value]) => (
+        <div
+          key={category}
+          style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}
+        >
+          <span style={{ color: BODY_COLOR }}>{capitalize(category)}</span>
+          <span style={{ color: "#fff" }}>{value.toFixed(1)}</span>
+        </div>
+      ))}
+
       {result.sources.length > 0 && (
-        <Row label="Sources:">
-          {joinWithDot(
-            result.sources.map((source) => (
+        <div style={{ color: LABEL_COLOR, fontSize: "13px", marginTop: "12px" }}>
+          Based on {result.sources.length}{" "}
+          {plural(result.sources.length, "review")}:{" "}
+          {result.sources.map((source, index) => (
+            <React.Fragment key={source.url}>
+              {index > 0 && ", "}
               <a
-                key={source.url}
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: VALUE_COLOR, textDecoration: "underline" }}
+                style={{ color: BODY_COLOR, textDecoration: "underline" }}
               >
                 {source.publication ?? hostnameOf(source.url)}
               </a>
-            ))
-          )}
-        </Row>
+            </React.Fragment>
+          ))}
+        </div>
       )}
     </>
   );
 };
 
 /**
- * The aggregate rows the backend synthesises, which are counts rather than
- * named awards and belong in the totals line.
+ * The aggregate rows the backend synthesises are counts rather than named
+ * awards, and belong in the header's totals instead of the list.
  */
 function isNamed(award: Award): boolean {
   return award.name !== "Other awards" && award.name !== "Nominations";
 }
 
-/**
- * Total wins and nominations, counting the aggregate rows and the named ones
- * together so the figure matches what the awards bodies actually recorded.
- */
 function awardTotals(awards: Award[]): { wins: number; nominations: number } {
   let wins = 0;
   let nominations = 0;
@@ -248,27 +336,6 @@ function awardTotals(awards: Award[]): { wins: number; nominations: number } {
   }
 
   return { wins, nominations };
-}
-
-function awardText(award: Award): React.ReactNode {
-  return (
-    <span key={`${award.name}-${award.category ?? ""}-${award.year}`}>
-      <span style={{ color: "#fff" }}>{award.name}</span>
-      {award.category ? ` ${award.category}` : ""}
-    </span>
-  );
-}
-
-/**
- * Join with Netflix's own separator, which is a middot rather than a comma.
- */
-function joinWithDot(items: React.ReactNode[]): React.ReactNode {
-  return items.map((item, index) => (
-    <React.Fragment key={index}>
-      {index > 0 && <span style={{ color: LABEL_COLOR }}> · </span>}
-      {item}
-    </React.Fragment>
-  ));
 }
 
 function formatScore(rating: Rating): string {

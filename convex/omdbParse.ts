@@ -29,6 +29,12 @@ export interface ParsedAward {
   year: number;
   isWin: boolean;
   count: number;
+  /**
+   * Who received it. Present only for awards Wikidata attributes to people —
+   * an acting or directing award names its recipient, while "Best Picture"
+   * names its producers and a festival's top-ten list names nobody.
+   */
+  people?: string[];
 }
 
 /**
@@ -67,6 +73,7 @@ export interface LookupResult {
       year: number;
       isWin: boolean;
       count?: number;
+      people?: string[];
     }>;
   };
   ratings: Array<{

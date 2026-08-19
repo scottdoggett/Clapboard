@@ -99,6 +99,7 @@ function toLookupResult(
         year: award.year,
         isWin: award.isWin,
         count: award.count,
+        people: award.people,
       })),
     },
     ratings: ratings.map((rating) => ({
@@ -203,6 +204,7 @@ export const persistLookup = internalMutation({
         year: v.number(),
         isWin: v.boolean(),
         count: v.number(),
+        people: v.optional(v.array(v.string())),
       })
     ),
   },
@@ -272,6 +274,7 @@ export const persistLookup = internalMutation({
         year: award.year,
         isWin: award.isWin,
         count: award.count,
+        people: award.people,
         createdAt: now,
       });
     }

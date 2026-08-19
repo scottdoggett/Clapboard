@@ -99,6 +99,13 @@ export interface Award {
   // individual categories ("Won 4 Oscars"), so one record can stand for
   // several awards. Treat a missing count as 1.
   count?: number;
+
+  /**
+   * Who received it. Present only where the awards data attributes the award
+   * to people — an acting or writing award names its recipients, "Best
+   * Picture" names its producers, a festival's top-ten list names nobody.
+   */
+  people?: string[];
 }
 
 /**

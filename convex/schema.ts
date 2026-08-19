@@ -146,6 +146,10 @@ export default defineSchema({
     // e.g. "Won 4 Oscars" becomes one record with count: 4)
     count: v.optional(v.number()),
 
+    // Who received it, where the awards data attributes it to people. An
+    // acting award names its recipient; a festival's top-ten list names nobody.
+    people: v.optional(v.array(v.string())),
+
     // Timestamps
     createdAt: v.number(),
   }).index("by_movie", ["movieId"]),

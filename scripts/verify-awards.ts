@@ -225,5 +225,96 @@ check(
   ]
 );
 
+// --- Who actually received the award ---------------------------------------
+// The same award arrives on several rows: the film's own statement, plus one
+// per person who shared it. Best Picture alone can be three or four producers.
+const person = (name: string) => literal(name);
+
+check(
+  "collects everyone who shared an award",
+  parseAwardsResponse(
+    {
+      results: {
+        bindings: [
+          { kind: literal("won"), awardLabel: literal("Academy Award for Best Writing, Adapted Screenplay"), date: dated("2016-02-28T00:00:00Z") },
+          { kind: literal("won"), awardLabel: literal("Academy Award for Best Writing, Adapted Screenplay"), date: dated("2016-02-28T00:00:00Z"), personLabel: person("Adam McKay") },
+          { kind: literal("won"), awardLabel: literal("Academy Award for Best Writing, Adapted Screenplay"), date: dated("2016-02-28T00:00:00Z"), personLabel: person("Charles Randolph") },
+        ],
+      },
+    },
+    2015
+  ),
+  [
+    {
+      name: "Oscar",
+      category: "Best Writing, Adapted Screenplay",
+      year: 2016,
+      isWin: true,
+      count: 1,
+      people: ["Adam McKay", "Charles Randolph"],
+    },
+  ]
+);
+
+// Recipients are sorted so the same award renders identically every time
+check(
+  "recipients are ordered deterministically",
+  parseAwardsResponse(
+    {
+      results: {
+        bindings: [
+          { kind: literal("nominated"), awardLabel: literal("Academy Award for Best Picture"), personLabel: person("Jeremy Kleiner") },
+          { kind: literal("nominated"), awardLabel: literal("Academy Award for Best Picture"), personLabel: person("Brad Pitt") },
+          { kind: literal("nominated"), awardLabel: literal("Academy Award for Best Picture"), personLabel: person("Dede Gardner") },
+        ],
+      },
+    },
+    2015
+  )[0].people,
+  ["Brad Pitt", "Dede Gardner", "Jeremy Kleiner"]
+);
+
+// An award nobody is named for — a festival's top-ten list — carries no people
+check(
+  "an unattributed award has no recipients",
+  parseAwardsResponse(
+    { results: { bindings: [{ kind: literal("won"), awardLabel: literal("National Board of Review: Top Ten Films") }] } },
+    2015
+  )[0].people,
+  undefined
+);
+
+// A win still hides its own nomination, and keeps the winners
+check(
+  "the surviving win keeps its recipients",
+  parseAwardsResponse(
+    {
+      results: {
+        bindings: [
+          { kind: literal("nominated"), awardLabel: literal("Academy Award for Best Director"), personLabel: person("Adam McKay") },
+          { kind: literal("won"), awardLabel: literal("Academy Award for Best Director"), personLabel: person("Adam McKay") },
+        ],
+      },
+    },
+    2015
+  ),
+  [{ name: "Oscar", category: "Best Director", year: 2015, isWin: true, count: 1, people: ["Adam McKay"] }]
+);
+
+// The query needs four branches: the film's wins and nominations, and the
+// people's. Asserting the marker merely *appears* is not enough — dropping
+// one of the two person branches leaves the other's marker behind and passes.
+{
+  const query = buildAwardsQuery("tt1596363");
+  check(
+    "both person branches are present",
+    (query.match(/pq:P1686/g) ?? []).length,
+    2
+  );
+  check("wins are queried on the film and the person", (query.match(/ps:P166 /g) ?? []).length, 2);
+  check("nominations likewise", (query.match(/ps:P1411 /g) ?? []).length, 2);
+  check("recipients are selected", query.includes("?personLabel"), true);
+}
+
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);
