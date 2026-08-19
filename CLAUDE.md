@@ -58,6 +58,8 @@ Order of operations in `detectCurrentTitle()`:
 
 Candidates are merged rather than raced: the first usable title wins, and fields it lacks (typically the year) are filled from later candidates.
 
+When the URL says there's a title but nothing is readable yet, `waitForTitle` **polls the detector** rather than waiting for a container element to appear. Netflix inserts its modal container immediately and fills in the story art and tab title afterwards, so a container-triggered check ran while the title was still milliseconds away and gave up. The only reliable signal that a title is readable is reading it. Polling stops early if the user navigates away.
+
 Content type comes from the URL where the platform encodes it (`/movies/` vs `/series/`), otherwise from a `seriesIndicator` element, otherwise stays `undefined` — a missing episode list may just mean it hasn't rendered.
 
 Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patterns, and selector candidate lists. Add its URL shapes to `scripts/verify-detection.ts` and a fixture page to `scripts/verify-dom.ts` at the same time.

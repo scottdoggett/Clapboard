@@ -228,41 +228,44 @@ export function getOverlayAnchor(): Element | null {
 }
 
 /**
- * Wait for any of a site's title-page selectors to appear.
+ * Poll for a readable title until one appears or the deadline passes.
  *
- * Detail views render asynchronously, so a check that runs the instant the URL
- * changes finds nothing. This resolves as soon as the view is up.
+ * Waiting for the *container* to render is not enough, and assuming otherwise
+ * was a real bug: Netflix inserts its modal immediately but fills in the story
+ * art and updates the tab title afterwards, so a check triggered by the
+ * container's arrival ran while the title was still milliseconds away and gave
+ * up. The only reliable signal that a title is readable is reading it.
  *
  * @param timeout - Maximum time to wait in ms
- * @returns Promise resolving to true if the detail view rendered
+ * @param intervalMs - Gap between attempts
+ * @returns The title once readable, or null on timeout
  */
-export function waitForTitlePage(timeout: number = 5000): Promise<boolean> {
-  const site = detectSite();
-  if (!site) return Promise.resolve(false);
-
-  const selectors = SUPPORTED_SITES[site].selectors.titlePage;
-  const present = () => selectors.some((selector) => safeQuerySelector(selector));
+export function waitForTitle(
+  timeout: number = 5000,
+  intervalMs: number = 200
+): Promise<TitleInfo | null> {
+  const deadline = Date.now() + timeout;
 
   return new Promise((resolve) => {
-    if (present()) {
-      resolve(true);
-      return;
-    }
-
-    const observer = new MutationObserver(() => {
-      if (present()) {
-        observer.disconnect();
-        clearTimeout(timer);
-        resolve(true);
+    const attempt = (): void => {
+      const info = detectCurrentTitle();
+      if (info) {
+        resolve(info);
+        return;
       }
-    });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+      // Re-check the gate each time: the user may have closed the modal or
+      // navigated away while we were waiting, and continuing to poll a page
+      // that is no longer a title page just delays the caller
+      if (!isOnTitlePage() || Date.now() >= deadline) {
+        resolve(null);
+        return;
+      }
 
-    const timer = setTimeout(() => {
-      observer.disconnect();
-      resolve(false);
-    }, timeout);
+      setTimeout(attempt, intervalMs);
+    };
+
+    attempt();
   });
 }
 

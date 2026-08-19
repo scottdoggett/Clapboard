@@ -393,6 +393,62 @@ check(
   );
 }
 
+// --- Waiting for a late-rendering title ------------------------------------
+// The bug this replaced: Netflix inserts its modal container immediately and
+// fills in the story art afterwards, so waiting for the container then trying
+// once gave up while the title was still milliseconds away.
+{
+  const { dom, mod } = await loadPage(
+    "https://www.netflix.com/browse?jbv=70266676",
+    `<head><title>Netflix</title></head>
+     <body><div data-uia="modal-motion-container-DETAIL_MODAL"></div></body>`
+  );
+
+  // Container is present, title is not — the old check would stop here
+  check("nothing readable yet", mod.detectCurrentTitle(), null);
+
+  const pending = mod.waitForTitle(2000, 20);
+
+  // The image lands a few polls later, as it does on the real site
+  setTimeout(() => {
+    const img = dom.window.document.createElement("img");
+    img.className = "playerModel--player__storyArt";
+    img.setAttribute("alt", "The Big Short");
+    dom.window.document
+      .querySelector('[data-uia="modal-motion-container-DETAIL_MODAL"]')!
+      .appendChild(img);
+  }, 60);
+
+  check("waits for the title to arrive", await pending, {
+    title: "The Big Short",
+    year: undefined,
+    type: undefined,
+  });
+}
+
+{
+  // Give up rather than poll a page the user has navigated away from
+  const { dom, mod } = await loadPage(
+    "https://www.netflix.com/browse?jbv=70266676",
+    `<head><title>Netflix</title></head><body></body>`
+  );
+
+  const pending = mod.waitForTitle(3000, 20);
+  setTimeout(() => dom.window.history.pushState({}, "", "/browse"), 40);
+
+  const started = Date.now();
+  check("stops polling once it is no longer a title page", await pending, null);
+  check("...and returns promptly rather than waiting out the timeout", Date.now() - started < 1500, true);
+}
+
+{
+  const { mod } = await loadPage(
+    "https://www.netflix.com/browse?jbv=1",
+    `<head><title>Netflix</title></head><body></body>`
+  );
+  check("times out when nothing ever renders", await mod.waitForTitle(120, 20), null);
+}
+
 // --- SPA navigation watching -----------------------------------------------
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

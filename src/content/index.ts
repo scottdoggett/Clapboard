@@ -19,7 +19,7 @@ import {
   detectSite,
   getOverlayAnchor,
   isOnTitlePage,
-  waitForTitlePage,
+  waitForTitle,
   type TitleInfo,
 } from "@shared/utils/dom";
 import { STORAGE_KEYS } from "@shared/constants";
@@ -141,13 +141,12 @@ async function checkForTitle(): Promise<void> {
 
   let titleInfo = detectCurrentTitle();
 
-  // The URL says there's a title here but the detail view hasn't rendered yet,
-  // which is the normal case right after a client-side navigation
+  // The URL says there's a title here but it isn't readable yet, which is the
+  // normal case right after a client-side navigation
   if (!titleInfo) {
     console.log("[Clapboard] Title page detected, waiting for it to render...");
-    await waitForTitlePage(TITLE_RENDER_TIMEOUT_MS);
+    titleInfo = await waitForTitle(TITLE_RENDER_TIMEOUT_MS);
     if (generation !== checkGeneration) return;
-    titleInfo = detectCurrentTitle();
   }
 
   if (titleInfo) {
