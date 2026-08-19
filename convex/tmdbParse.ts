@@ -12,6 +12,8 @@
  * it against recorded responses.
  */
 
+import type { ParsedMovie } from "./omdbParse";
+
 /**
  * TMDB serves images from a CDN whose base path comes from its configuration
  * endpoint. The base is stable in practice and hard-coding it avoids a second
@@ -174,15 +176,7 @@ function readString(value: unknown): string | null {
  * @param tmdb - Metadata from TMDB
  * @returns The merged metadata
  */
-export function mergeMetadata<
-  T extends {
-    posterUrl?: string;
-    runtime?: number;
-    genre?: string[];
-    director?: string;
-    tmdbId?: string;
-  },
->(base: T, tmdb: TmdbMetadata): T {
+export function mergeMetadata(base: ParsedMovie, tmdb: TmdbMetadata): ParsedMovie {
   return {
     ...base,
     tmdbId: base.tmdbId ?? tmdb.tmdbId,

@@ -260,9 +260,10 @@ check(
     director: "Christopher Nolan",
   }
 );
+const sparseBase = { title: "X" };
 check(
   "merge fills gaps TMDB can cover",
-  mergeMetadata({ title: "X" }, { runtime: 99, genre: ["Drama"], director: "A. Director" }),
+  mergeMetadata(sparseBase, { runtime: 99, genre: ["Drama"], director: "A. Director" }),
   {
     title: "X",
     tmdbId: undefined,
@@ -272,9 +273,11 @@ check(
     director: "A. Director",
   }
 );
+
+const completeBase = { title: "X", runtime: 100 };
 check(
   "merge with nothing from TMDB is a no-op",
-  mergeMetadata({ title: "X", runtime: 100 }, {}),
+  mergeMetadata(completeBase, {}),
   { title: "X", tmdbId: undefined, posterUrl: undefined, runtime: 100, genre: undefined, director: undefined }
 );
 
