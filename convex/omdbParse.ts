@@ -45,6 +45,11 @@ export interface ParsedAward {
 export interface ParsedMovie {
   /** Set by the TMDB provider when configured, not by OMDb */
   tmdbId?: string;
+  /** Synopsis, cast and certification — shown in the overlay's info panel */
+  plot?: string;
+  actors?: string[];
+  writer?: string[];
+  rated?: string;
   title: string;
   year?: number;
   imdbId?: string;
@@ -65,6 +70,10 @@ export interface LookupResult {
     imdbId?: string;
     tmdbId?: string;
     genre?: string[];
+    plot?: string;
+    actors?: string[];
+    writer?: string[];
+    rated?: string;
     posterUrl?: string;
     runtime?: number;
     director?: string;
@@ -265,6 +274,24 @@ export function stripTitleQualifier(title: string): string | null {
   return base;
 }
 
+/**
+ * Split one of OMDb's comma-joined lists ("Bale, Carell, Gosling").
+ *
+ * Returns undefined rather than an empty array so an absent field and an
+ * empty one are the same thing downstream.
+ */
+function splitList(value: string | undefined): string[] | undefined {
+  const raw = present(value);
+  if (!raw) return undefined;
+
+  const items = raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return items.length > 0 ? items : undefined;
+}
+
 export function parseAwardTotals(summary: string | undefined): {
   wins: number;
   nominations: number;
@@ -365,6 +392,10 @@ export interface OmdbResponse {
   Year?: string;
   Runtime?: string;
   Genre?: string;
+  Plot?: string;
+  Actors?: string;
+  Writer?: string;
+  Rated?: string;
   Director?: string;
   Poster?: string;
   Awards?: string;
@@ -395,6 +426,10 @@ export function parseOmdbResponse(data: OmdbResponse): {
     posterUrl: present(data.Poster),
     runtime: parseRuntime(data.Runtime),
     director: present(data.Director),
+    plot: present(data.Plot),
+    actors: splitList(data.Actors),
+    writer: splitList(data.Writer),
+    rated: present(data.Rated),
   };
 
   const ratings: ParsedRating[] = [];

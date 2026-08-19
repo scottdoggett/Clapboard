@@ -30,6 +30,8 @@ import {
   DEFAULT_SETTINGS,
 } from "@shared/utils/storage";
 import { lookupMovie, requestAiScores, closeClient } from "@shared/api/convex";
+import { syncLibrary } from "@shared/api/librarySync";
+import { clearStoredAuth } from "@shared/utils/authStorage";
 import { calculateAverageScore } from "@shared/utils/scoring";
 import { buildLookupKey } from "@shared/utils/text";
 import { EXTENSION_INFO, FEATURES, STORAGE_KEYS } from "@shared/constants";
@@ -109,6 +111,9 @@ async function handleMessage(
 
     case "CLEAR_CACHE":
       return handleClearCache();
+
+    case "SYNC_LIBRARY":
+      return handleSyncLibrary();
 
     default: {
       // TypeScript exhaustiveness check
@@ -253,6 +258,27 @@ async function handleAiScoreRequest(payload: {
 }
 
 /**
+ * Reconcile the local library with the server copy.
+ *
+ * Signed out is a normal answer, not an error — the library works without an
+ * account and the popup shows it either way.
+ */
+async function handleSyncLibrary(): Promise<
+  MessageResponse<{ entries: number } | null>
+> {
+  const settings = await getSettings();
+  const url = resolveConvexUrl(settings);
+
+  if (!url) {
+    return { success: false, error: "No Convex deployment URL configured." };
+  }
+
+  const entries = await syncLibrary(url);
+
+  return { success: true, data: entries === null ? null : { entries } };
+}
+
+/**
  * Report extension status to the popup
  */
 async function handleGetStatus(): Promise<MessageResponse<ExtensionStatus>> {
@@ -292,9 +318,12 @@ async function handleUpdateSettings(
 
   if (payload.convexUrl !== undefined) {
     // Point the client at the new deployment, and drop cached results that
-    // came from the old one.
+    // came from the old one. Tokens go too: they are issued by one deployment
+    // and meaningless to another, and a stale one fails confusingly rather
+    // than reading as signed out.
     closeClient();
     await clearCache();
+    await clearStoredAuth();
   }
 
   return { success: true, data: settings };

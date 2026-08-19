@@ -31,10 +31,19 @@ interface InlineSectionProps {
   aiScores?: AiScoresState | null;
 }
 
-/** Netflix's own values, measured from the live page. */
-const PANEL_BG = "rgb(47, 47, 47)";
+/**
+ * Netflix's own values, measured from the live page, with one departure.
+ *
+ * Their card grey (`rgb(47,47,47)`) is a flat fill meant to sit under a
+ * thumbnail. Stacked as several panels in a row it reads as a block of slabs,
+ * so these are darker, hairline-bordered and lightly shadowed instead: the
+ * same restraint, but with edges doing the separating rather than fill.
+ */
+const PANEL_BG = "rgba(255, 255, 255, 0.045)";
+const PANEL_BORDER = "1px solid rgba(255, 255, 255, 0.09)";
+const PANEL_SHADOW = "0 1px 2px rgba(0, 0, 0, 0.4)";
 const PANEL_RADIUS = "4px";
-const LABEL_COLOR = "#777";
+const LABEL_COLOR = "#8c8c8c";
 const BODY_COLOR = "#d2d2d2";
 
 /** Named awards shown before the list collapses. */
@@ -65,6 +74,7 @@ const InlineSection: React.FC<InlineSectionProps> = ({
 }) => {
   const [showAllAwards, setShowAllAwards] = useState(false);
   const [showScores, setShowScores] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
 
   // The IMDb id is what makes this entry the same film across platforms; the
   // rest is what the library needs to show it back without another lookup.
@@ -168,47 +178,127 @@ const InlineSection: React.FC<InlineSectionProps> = ({
         </Panel>
       )}
 
+      {/* What the film actually is — the modal shows a synopsis, but not the
+          writer, the cast in full, or the certification alongside it */}
+      {hasInfo(movie) && (
+        <div style={{ marginTop: "8px" }}>
+          <Disclosure
+            title="Movie information"
+            open={showInfo}
+            onToggle={() => setShowInfo(!showInfo)}
+          >
+            {movie.plot && (
+              <p style={{ color: BODY_COLOR, margin: "0 0 12px" }}>{movie.plot}</p>
+            )}
+            <InfoRow label="Director" value={movie.director} />
+            <InfoRow label="Writers" value={movie.writer?.join(", ")} />
+            <InfoRow label="Cast" value={movie.actors?.join(", ")} />
+            <InfoRow label="Genre" value={movie.genre?.join(", ")} />
+            <InfoRow
+              label="Runtime"
+              value={movie.runtime ? formatRuntime(movie.runtime) : undefined}
+            />
+            <InfoRow label="Rated" value={movie.rated} />
+            <InfoRow label="Released" value={movie.year ? String(movie.year) : undefined} />
+          </Disclosure>
+        </div>
+      )}
+
       {/* AI analysis, opened on demand because generating it costs a real call */}
       {aiScores && (
         <div style={{ marginTop: "8px" }}>
-          <Panel>
-            <button
-              onClick={() => {
-                const next = !showScores;
-                setShowScores(next);
-                if (next) aiScores.onRequest();
-              }}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                width: "100%",
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: "16px",
-                color: "#fff",
-              }}
-            >
-              <span>AI review analysis</span>
-              <span style={{ color: LABEL_COLOR, fontSize: "13px" }}>
-                {showScores ? "Hide" : "Show"}
-              </span>
-            </button>
-
-            {showScores && (
-              <div style={{ marginTop: "12px" }}>
-                <AiDetail state={aiScores} />
-              </div>
-            )}
-          </Panel>
+          <Disclosure
+            title="AI review analysis"
+            open={showScores}
+            onToggle={() => {
+              const next = !showScores;
+              setShowScores(next);
+              // Opening is what pays for the run, so it is requested here
+              if (next) aiScores.onRequest();
+            }}
+          >
+            <AiDetail state={aiScores} />
+          </Disclosure>
         </div>
       )}
     </section>
   );
 };
+
+/**
+ * A panel that opens.
+ *
+ * Both the info and the AI panels are the same control, so they behave the
+ * same — the AI one merely has a side effect on opening.
+ */
+const Disclosure: React.FC<{
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}> = ({ title, open, onToggle, children }) => (
+  <Panel>
+    <button
+      onClick={onToggle}
+      aria-expanded={open}
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        width: "100%",
+        background: "none",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+        fontFamily: "inherit",
+        fontSize: "16px",
+        color: "#fff",
+      }}
+    >
+      <span>{title}</span>
+      <Chevron open={open} />
+    </button>
+
+    {open && <div style={{ marginTop: "12px" }}>{children}</div>}
+  </Panel>
+);
+
+const Chevron: React.FC<{ open: boolean }> = ({ open }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width="16"
+    height="16"
+    fill="none"
+    stroke={LABEL_COLOR}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform 150ms ease" }}
+  >
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);
+
+/**
+ * One labelled fact, in the label/value pattern the host page uses.
+ */
+const InfoRow: React.FC<{ label: string; value?: string }> = ({ label, value }) =>
+  value ? (
+    <div style={{ display: "flex", gap: "10px", padding: "3px 0" }}>
+      <span style={{ color: LABEL_COLOR, width: "76px", flexShrink: 0 }}>{label}</span>
+      <span style={{ color: BODY_COLOR, flex: 1, minWidth: 0 }}>{value}</span>
+    </div>
+  ) : null;
+
+/**
+ * Is there anything worth opening a panel for?
+ */
+function hasInfo(movie: Movie): boolean {
+  return Boolean(
+    movie.plot || movie.director || movie.actors?.length || movie.writer?.length
+  );
+}
 
 /**
  * A panel in the grey Netflix paints behind its own card synopses.
@@ -225,14 +315,16 @@ const Panel: React.FC<{ children: React.ReactNode; href?: string | null }> = ({
 
   const style: React.CSSProperties = {
     display: "block",
-    background: hover && href ? "rgb(60, 60, 60)" : PANEL_BG,
+    background: hover && href ? "rgba(255, 255, 255, 0.085)" : PANEL_BG,
+    border: hover && href ? "1px solid rgba(255, 255, 255, 0.22)" : PANEL_BORDER,
+    boxShadow: PANEL_SHADOW,
     borderRadius: PANEL_RADIUS,
     padding: "14px",
     fontSize: "14px",
     lineHeight: "20px",
     color: BODY_COLOR,
     textDecoration: "none",
-    transition: "background 120ms ease",
+    transition: "background 120ms ease, border-color 120ms ease",
     cursor: href ? "pointer" : "default",
   };
 
@@ -511,6 +603,17 @@ function formatScore(rating: Rating): string {
   return rating.maxScore === 100
     ? `${rating.score}%`
     : `${rating.score}/${rating.maxScore}`;
+}
+
+/**
+ * "148" -> "2h 28m"
+ */
+function formatRuntime(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+
+  if (hours === 0) return `${rest}m`;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
 
 function plural(count: number, word: string): string {

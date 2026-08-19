@@ -124,6 +124,11 @@ export interface Movie {
   posterUrl?: string;
   runtime?: number; // in minutes
   director?: string;
+  plot?: string;
+  actors?: string[];
+  writer?: string[];
+  /** Certification, e.g. "R", "TV-MA" */
+  rated?: string;
   awards?: Award[];
 }
 

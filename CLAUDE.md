@@ -37,7 +37,7 @@ Clapboard is a **Chrome Manifest V3 extension** that overlays movie/show ratings
 
 2. **Content script** (`src/content/index.ts`) — Injected into streaming sites. Detects the current title via platform-specific DOM selectors, then mounts a React overlay inside a **Shadow DOM** for style isolation. Bundled as IIFE format (not ESM).
 
-3. **Popup** (`src/popup/`) — Toolbar popup for settings/status. Bundled as ESM.
+3. **Popup** (`src/popup/`) — Your lists, your account, and settings. Bundled as ESM. It is the only context that talks to Convex directly (a `ConvexReactClient` for auth); everything else routes through the background worker.
 
 ### Message Protocol
 
@@ -77,6 +77,10 @@ Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patt
 ### Backend
 
 The extension sends an anonymous per-installation id (`getClientId` in `src/shared/utils/storage.ts`) with scoring requests. It's a random UUID, stored only in the extension's own storage, sent only to the configured deployment, and exists solely so the scoring budget can tell installations apart.
+
+**Tokens live in `chrome.storage`, not `localStorage`** (`src/shared/utils/authStorage.ts`). Convex Auth's default is per-page, and three contexts need the same session — the popup where you sign in, the worker that syncs, the content script that reads. Changing the deployment URL clears them: a token from one deployment is meaningless to another and fails confusingly rather than reading as signed out.
+
+**Sync** (`src/shared/api/librarySync.ts`) pushes every local entry, the server merges by `updatedAt`, and the result is written back wholesale. Merging rather than overwriting is the point: mark ten titles signed out, then sign in, and you keep those ten — and a second device does not erase the first.
 
 **Auth** is Convex Auth with the password provider (`convex/auth.ts`) — the only option needing no third-party account, since sign-up runs entirely against this deployment. Keys live in the deployment env (`JWT_PRIVATE_KEY`, `JWKS`), set by `npx @convex-dev/auth`.
 
@@ -243,7 +247,7 @@ Defined in both `tsconfig.json` and the esbuild alias plugin:
 
 Phase 1 (Ratings Overlay) and Phase 2 (Awards) are implemented end to end: title detection → background worker → Convex → OMDb → overlay.
 
-Phase 3 (AI review scoring) is implemented, and everything except the model call itself has now been exercised against a live deployment: the schema deploys, and `claimScoringRun` was driven through claim → pending-dedup → release → budget exhaustion via `npx convex run`. What remains unproven is the Claude call — that needs an `ANTHROPIC_API_KEY` and `FEATURES.AI_SCORES_ENABLED` flipped on. Phase 4 (user accounts) has its backend done: auth, the `libraryEntries` table, and scoped read/write functions, all verified against the live deployment — sign-up returns a JWT, a scoped write and read round-trip, and an unauthenticated call is refused. What remains is the sign-in UI in the popup and the local↔server sync.
+Phase 3 (AI review scoring) is implemented, and everything except the model call itself has now been exercised against a live deployment: the schema deploys, and `claimScoringRun` was driven through claim → pending-dedup → release → budget exhaustion via `npx convex run`. What remains unproven is the Claude call — that needs an `ANTHROPIC_API_KEY` and `FEATURES.AI_SCORES_ENABLED` flipped on. Phase 4 (user accounts) has its backend done: auth, the `libraryEntries` table, and scoped read/write functions, all verified against the live deployment — sign-up returns a JWT, a scoped write and read round-trip, and an unauthenticated call is refused. The popup has the sign-in UI and the sync.
 
 Known gaps in the current phases:
 - The MDBList and TMDB providers have **never run against their live APIs** — both need keys. Their parsers are unit-verified and every failure path is a no-op, so an unconfigured or broken provider costs nothing, but the first real response is unproven. MDBList's per-rating field names are the specific unknown.

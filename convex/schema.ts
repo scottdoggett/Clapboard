@@ -45,6 +45,10 @@ export default defineSchema({
 
     // Metadata
     genre: v.optional(v.array(v.string())),
+    plot: v.optional(v.string()),
+    actors: v.optional(v.array(v.string())),
+    writer: v.optional(v.array(v.string())),
+    rated: v.optional(v.string()),
     posterUrl: v.optional(v.string()),
     runtime: v.optional(v.number()), // in minutes
     director: v.optional(v.string()),

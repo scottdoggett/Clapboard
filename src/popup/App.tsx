@@ -1,398 +1,347 @@
 /**
- * Clapboard Popup Root Component
+ * Clapboard Popup
  *
- * Main component for the browser action popup UI.
- * Displays extension status, settings, and quick actions.
+ * Three things: your lists, your account, and settings.
+ *
+ * Styled to the same restraint as the overlay — near-black, hairline borders,
+ * a little shadow for depth, and no colour beyond greyscale. The extension
+ * spends its life inside Netflix, and a popup that looked like a different
+ * product would be the only place that jarred.
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import StatusCard from "./components/StatusCard";
-import type {
-  Message,
-  MessageResponse,
-  MessageResponseMap,
-  ExtensionStatus,
-} from "@shared/types/messages";
+import type { Message, MessageResponse, MessageResponseMap, ExtensionStatus } from "@shared/types/messages";
+import { SUPPORTED_SITES } from "@shared/constants";
+import AuthPanel from "./AuthPanel";
+import LibraryList from "./LibraryList";
 
-type ConnectionStatus = "connected" | "connecting" | "disconnected" | "error";
+interface AppProps {
+  /** Whether a Convex deployment is configured, so accounts are possible */
+  hasConvex?: boolean;
+}
 
-/**
- * Send a message to the background worker and unwrap its response
- */
 async function sendMessage<T extends Message>(
   message: T
 ): Promise<MessageResponseMap[T["type"]]> {
   const response: MessageResponse = await chrome.runtime.sendMessage(message);
-
-  if (!response.success) {
-    throw new Error(response.error || "Unknown error");
-  }
-
+  if (!response.success) throw new Error(response.error || "Unknown error");
   return response.data as MessageResponseMap[T["type"]];
 }
 
-const App: React.FC = () => {
-  const [status, setStatus] = useState<ConnectionStatus>("connecting");
-  const [currentSite, setCurrentSite] = useState<string | null>(null);
-  const [extensionStatus, setExtensionStatus] = useState<ExtensionStatus | null>(
-    null
-  );
+const App: React.FC<AppProps> = ({ hasConvex = false }) => {
+  const [status, setStatus] = useState<ExtensionStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [site, setSite] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [urlDraft, setUrlDraft] = useState("");
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const isEnabled = extensionStatus?.enabled ?? true;
-
-  const loadStatus = useCallback(async (): Promise<void> => {
+  const load = useCallback(async () => {
     try {
       const result = await sendMessage({ type: "GET_STATUS" });
-
-      setExtensionStatus(result);
+      setStatus(result);
       setUrlDraft(result.convexUrl);
-
-      // "Connected" here means the extension knows where its backend is. The
-      // popup deliberately doesn't ping Convex — a lookup would cost an API
-      // call just to render a status dot.
-      setStatus(result.configured ? "connected" : "disconnected");
-    } catch {
-      setStatus("error");
+      setError(null);
+      // Settings is the one screen that matters when nothing is configured,
+      // so it opens itself rather than hiding behind a button
+      if (!result.configured) setShowSettings(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
     }
   }, []);
 
   useEffect(() => {
-    void loadStatus();
-    void getCurrentTab();
-  }, [loadStatus]);
+    void load();
 
-  const getCurrentTab = async (): Promise<void> => {
-    try {
-      const [tab] = await chrome.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-      if (tab?.url) {
-        const url = new URL(tab.url);
-        setCurrentSite(url.hostname);
-      }
-    } catch {
-      // Ignore errors
-    }
-  };
-
-  const handleToggle = async (): Promise<void> => {
-    try {
-      const settings = await sendMessage({
-        type: "SET_ENABLED",
-        payload: { enabled: !isEnabled },
-      });
-
-      setExtensionStatus((prev) =>
-        prev ? { ...prev, enabled: settings.enabled } : prev
+    void chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+      const url = tab?.url ?? "";
+      const match = Object.values(SUPPORTED_SITES).find((config) =>
+        config.hostPatterns.some((pattern) => url.includes(pattern))
       );
-    } catch {
-      setStatus("error");
-    }
+      setSite(match?.name ?? null);
+    });
+  }, [load]);
+
+  const setEnabled = async (enabled: boolean): Promise<void> => {
+    await sendMessage({ type: "SET_ENABLED", payload: { enabled } });
+    await load();
   };
 
-  const handleSaveUrl = async (): Promise<void> => {
-    try {
-      await sendMessage({
-        type: "UPDATE_SETTINGS",
-        payload: { convexUrl: urlDraft.trim() },
-      });
-
-      setSaveMessage("Saved — cache cleared");
-      await loadStatus();
-    } catch (err) {
-      setSaveMessage(err instanceof Error ? err.message : "Failed to save");
-    }
+  const saveUrl = async (): Promise<void> => {
+    await sendMessage({ type: "UPDATE_SETTINGS", payload: { convexUrl: urlDraft.trim() } });
+    setNote("Saved. Reopen the popup to sign in against the new deployment.");
+    await load();
   };
 
-  const handleClearCache = async (): Promise<void> => {
-    try {
-      await sendMessage({ type: "CLEAR_CACHE" });
-
-      setSaveMessage("Cache cleared");
-      await loadStatus();
-    } catch (err) {
-      setSaveMessage(err instanceof Error ? err.message : "Failed to clear cache");
-    }
+  const clearCache = async (): Promise<void> => {
+    await sendMessage({ type: "CLEAR_CACHE" });
+    setNote("Cached lookups cleared. Your list is untouched.");
+    await load();
   };
-
-  const streamingServices = [
-    { name: "Netflix", icon: "🎬", color: "#E50914" },
-    { name: "Disney+", icon: "✨", color: "#0063E5" },
-    { name: "Prime", icon: "📦", color: "#00A8E1" },
-    { name: "Crave", icon: "🍿", color: "#0070C9" },
-  ];
 
   return (
-    <div
-      style={{
-        width: 320,
-        minHeight: 280,
-        background: "linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f0f23 100%)",
-        color: "#fff",
-        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          padding: "16px 16px 12px",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              background: "linear-gradient(135deg, #f04d42 0%, #e63946 100%)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 18,
-              boxShadow: "0 4px 12px rgba(240, 77, 66, 0.3)",
-            }}
-          >
-            🎬
-          </div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em" }}>
-              Clapboard
-            </h1>
-            <p style={{ margin: 0, fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
-              Movie ratings at a glance
-            </p>
-          </div>
+    <div style={shell}>
+      <header style={header}>
+        <div>
+          <h1 style={wordmark}>Clapboard</h1>
+          <p style={{ ...muted, margin: "2px 0 0" }}>
+            {site ? `On ${site}` : "Open a streaming site to see ratings"}
+          </p>
         </div>
-        <span
-          style={{
-            fontSize: 10,
-            color: "rgba(255,255,255,0.4)",
-            background: "rgba(255,255,255,0.08)",
-            padding: "3px 8px",
-            borderRadius: 12,
-          }}
-        >
-          v{extensionStatus?.version ?? "0.1.0"}
-        </span>
-      </div>
 
-      {/* Main Content */}
-      <div style={{ padding: 16 }}>
-        <StatusCard
-          status={status}
-          currentSite={currentSite}
-          isEnabled={isEnabled}
-          onToggle={handleToggle}
-        />
-
-        {/* Backend not configured — the overlay can't fetch anything without it */}
-        {extensionStatus && !extensionStatus.configured && !showSettings && (
-          <button
-            onClick={() => setShowSettings(true)}
-            style={{
-              marginTop: 12,
-              width: "100%",
-              padding: "10px 12px",
-              background: "rgba(248, 113, 113, 0.12)",
-              border: "1px solid rgba(248, 113, 113, 0.3)",
-              borderRadius: 8,
-              color: "#f87171",
-              fontSize: 12,
-              cursor: "pointer",
-              textAlign: "left",
-            }}
-          >
-            No backend configured — set a Convex URL to start seeing ratings.
-          </button>
-        )}
-
-        {showSettings ? (
-          <div style={{ marginTop: 16 }}>
-            <h2 style={sectionHeadingStyle}>Backend</h2>
-
-            <label
-              style={{
-                display: "block",
-                fontSize: 11,
-                color: "rgba(255,255,255,0.5)",
-                marginBottom: 6,
-              }}
-              htmlFor="convex-url"
-            >
-              Convex deployment URL
-            </label>
-            <input
-              id="convex-url"
-              type="url"
-              value={urlDraft}
-              onChange={(e) => {
-                setUrlDraft(e.target.value);
-                setSaveMessage(null);
-              }}
-              placeholder="https://your-deployment.convex.cloud"
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "8px 10px",
-                fontSize: 12,
-                color: "#fff",
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: 8,
-                outline: "none",
-              }}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          {status && (
+            <Toggle
+              on={status.enabled}
+              onChange={(value) => void setEnabled(value)}
+              label={status.enabled ? "Overlay on" : "Overlay off"}
             />
+          )}
+          <IconButton
+            label="Settings"
+            active={showSettings}
+            onClick={() => setShowSettings(!showSettings)}
+          >
+            <GearIcon />
+          </IconButton>
+        </div>
+      </header>
 
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <button onClick={handleSaveUrl} style={primaryButtonStyle}>
-                Save
-              </button>
-              <button onClick={handleClearCache} style={secondaryButtonStyle}>
-                Clear cache ({extensionStatus?.cacheSize ?? 0})
-              </button>
-            </div>
+      {error && <Section><p style={warning}>{error}</p></Section>}
 
-            {saveMessage && (
-              <p
-                style={{
-                  margin: "10px 0 0",
-                  fontSize: 11,
-                  color: "rgba(255,255,255,0.6)",
-                }}
-              >
-                {saveMessage}
-              </p>
-            )}
+      {showSettings && (
+        <Section title="Settings">
+          <label style={{ ...muted, display: "block", marginBottom: "4px" }}>
+            Convex deployment URL
+          </label>
+          <input
+            value={urlDraft}
+            onChange={(event) => setUrlDraft(event.target.value)}
+            placeholder="https://your-deployment.convex.cloud"
+            style={input}
+          />
+          <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+            <button style={primaryButton} onClick={() => void saveUrl()}>
+              Save
+            </button>
+            <button style={secondaryButton} onClick={() => void clearCache()}>
+              Clear cache
+            </button>
           </div>
+
+          {note && <p style={{ ...muted, marginTop: "8px" }}>{note}</p>}
+
+          <p style={{ ...muted, marginTop: "10px" }}>
+            {status?.cacheSize ?? 0} cached lookups · v{status?.version ?? "—"}
+          </p>
+        </Section>
+      )}
+
+      <Section title="Account">
+        {hasConvex ? (
+          <AuthPanel
+            onSignedIn={() => {
+              // Merge rather than replace, so a list built signed out survives
+              void sendMessage({ type: "SYNC_LIBRARY" })
+                .then((result) =>
+                  setNote(
+                    result ? `Synced ${result.entries} titles to your account.` : null
+                  )
+                )
+                .catch(() => setNote("Signed in, but syncing failed."))
+                .finally(() => setRefreshKey((key) => key + 1));
+            }}
+          />
         ) : (
-          /* Supported Services */
-          <div style={{ marginTop: 16 }}>
-            <h2 style={sectionHeadingStyle}>Supported Platforms</h2>
-            <div style={{ display: "flex", gap: 8 }}>
-              {streamingServices.map((service) => (
-                <div
-                  key={service.name}
-                  style={{
-                    flex: 1,
-                    padding: "10px 8px",
-                    background: "rgba(255,255,255,0.05)",
-                    borderRadius: 10,
-                    textAlign: "center",
-                    transition: "all 0.2s ease",
-                    cursor: "default",
-                    border: "1px solid rgba(255,255,255,0.06)",
-                  }}
-                >
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>{service.icon}</div>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>
-                    {service.name}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <p style={muted}>
+            Set a deployment URL in Settings to enable accounts. Your list works
+            without one.
+          </p>
         )}
-      </div>
+      </Section>
 
-      {/* Footer */}
-      <div
-        style={{
-          padding: "12px 16px",
-          borderTop: "1px solid rgba(255,255,255,0.08)",
-          display: "flex",
-          justifyContent: "center",
-          gap: 24,
-        }}
-      >
-        <FooterButton
-          label={showSettings ? "Done" : "Settings"}
-          onClick={() => {
-            setShowSettings(!showSettings);
-            setSaveMessage(null);
-          }}
-        />
-        <FooterButton
-          label="Help"
-          onClick={() =>
-            void chrome.tabs.create({
-              url: "https://github.com/your-username/clapboard#readme",
-            })
-          }
-        />
-      </div>
+      <Section title="Your list">
+        <LibraryList refreshKey={refreshKey} />
+      </Section>
     </div>
   );
 };
 
-/**
- * Footer link button
- */
-const FooterButton: React.FC<{ label: string; onClick: () => void }> = ({
-  label,
-  onClick,
+const Section: React.FC<{ title?: string; children: React.ReactNode }> = ({
+  title,
+  children,
 }) => (
+  <section style={section}>
+    {title && <h2 style={sectionTitle}>{title}</h2>}
+    {children}
+  </section>
+);
+
+/**
+ * A switch, rather than a button that says what it will do — the state is the
+ * thing worth showing at a glance.
+ */
+const Toggle: React.FC<{
+  on: boolean;
+  label: string;
+  onChange: (value: boolean) => void;
+}> = ({ on, label, onChange }) => (
   <button
-    onClick={onClick}
+    onClick={() => onChange(!on)}
+    title={label}
+    aria-label={label}
+    aria-pressed={on}
     style={{
-      background: "none",
-      border: "none",
-      color: "rgba(255,255,255,0.5)",
-      fontSize: 12,
+      width: "36px",
+      height: "20px",
+      borderRadius: "10px",
+      border: `1px solid ${on ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.18)"}`,
+      background: on ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.06)",
+      position: "relative",
       cursor: "pointer",
-      padding: "4px 8px",
-      borderRadius: 6,
-      transition: "all 0.2s ease",
-    }}
-    onMouseOver={(e) => {
-      e.currentTarget.style.color = "#fff";
-      e.currentTarget.style.background = "rgba(255,255,255,0.1)";
-    }}
-    onMouseOut={(e) => {
-      e.currentTarget.style.color = "rgba(255,255,255,0.5)";
-      e.currentTarget.style.background = "none";
+      padding: 0,
+      transition: "background 140ms ease, border-color 140ms ease",
     }}
   >
-    {label}
+    <span
+      style={{
+        position: "absolute",
+        top: "2px",
+        left: on ? "18px" : "2px",
+        width: "14px",
+        height: "14px",
+        borderRadius: "50%",
+        background: on ? "#141414" : "rgba(255,255,255,0.6)",
+        transition: "left 140ms ease",
+      }}
+    />
   </button>
 );
 
-const sectionHeadingStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 600,
-  color: "rgba(255,255,255,0.5)",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  margin: "0 0 10px 0",
+const IconButton: React.FC<{
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}> = ({ label, active, onClick, children }) => (
+  <button
+    onClick={onClick}
+    title={label}
+    aria-label={label}
+    aria-pressed={active}
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      width: "28px",
+      height: "28px",
+      borderRadius: "4px",
+      border: `1px solid ${active ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.14)"}`,
+      background: active ? "rgba(255,255,255,0.1)" : "transparent",
+      color: active ? "#fff" : "#a8a8a8",
+      cursor: "pointer",
+      padding: 0,
+    }}
+  >
+    {children}
+  </button>
+);
+
+const GearIcon: React.FC = () => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1A1.7 1.7 0 008.9 19a1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1A1.7 1.7 0 005 8.9a1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H10a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V10a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" />
+  </svg>
+);
+
+// --- Styles ----------------------------------------------------------------
+
+const shell: React.CSSProperties = {
+  width: "340px",
+  maxHeight: "580px",
+  overflowY: "auto",
+  background: "#0f0f10",
+  color: "#fff",
+  fontFamily:
+    '"Netflix Sans", "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
 };
 
-const primaryButtonStyle: React.CSSProperties = {
-  flex: 1,
-  padding: "8px 12px",
-  fontSize: 12,
-  fontWeight: 600,
+const header: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: "10px",
+  padding: "14px 16px",
+  borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+};
+
+const wordmark: React.CSSProperties = {
+  margin: 0,
+  fontSize: "15px",
+  fontWeight: 500,
+  letterSpacing: "0.02em",
+};
+
+const section: React.CSSProperties = {
+  padding: "14px 16px",
+  borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+};
+
+const sectionTitle: React.CSSProperties = {
+  margin: "0 0 10px",
+  fontSize: "11px",
+  fontWeight: 400,
+  letterSpacing: "0.09em",
+  textTransform: "uppercase",
+  color: "#8c8c8c",
+};
+
+const muted: React.CSSProperties = {
+  color: "#8c8c8c",
+  fontSize: "12px",
+  lineHeight: "17px",
+  margin: 0,
+};
+
+const warning: React.CSSProperties = {
+  color: "#e5a3a3",
+  fontSize: "12px",
+  lineHeight: "17px",
+  margin: 0,
+};
+
+const input: React.CSSProperties = {
+  width: "100%",
+  background: "rgba(0, 0, 0, 0.4)",
+  border: "1px solid rgba(255, 255, 255, 0.12)",
+  borderRadius: "4px",
   color: "#fff",
-  background: "linear-gradient(135deg, #f04d42 0%, #e63946 100%)",
+  padding: "8px 10px",
+  fontSize: "12px",
+  fontFamily: "inherit",
+  boxSizing: "border-box",
+};
+
+const primaryButton: React.CSSProperties = {
+  background: "#fff",
+  color: "#141414",
   border: "none",
-  borderRadius: 8,
+  borderRadius: "4px",
+  padding: "7px 14px",
+  fontSize: "12px",
+  fontFamily: "inherit",
   cursor: "pointer",
 };
 
-const secondaryButtonStyle: React.CSSProperties = {
-  flex: 1,
-  padding: "8px 12px",
-  fontSize: 12,
-  color: "rgba(255,255,255,0.7)",
-  background: "rgba(255,255,255,0.06)",
-  border: "1px solid rgba(255,255,255,0.12)",
-  borderRadius: 8,
+const secondaryButton: React.CSSProperties = {
+  background: "transparent",
+  color: "#d2d2d2",
+  border: "1px solid rgba(255, 255, 255, 0.22)",
+  borderRadius: "4px",
+  padding: "7px 14px",
+  fontSize: "12px",
+  fontFamily: "inherit",
   cursor: "pointer",
 };
 

@@ -21,6 +21,7 @@ export enum MessageType {
   SET_ENABLED = "SET_ENABLED",
   UPDATE_SETTINGS = "UPDATE_SETTINGS",
   CLEAR_CACHE = "CLEAR_CACHE",
+  SYNC_LIBRARY = "SYNC_LIBRARY",
 }
 
 /**
@@ -95,6 +96,17 @@ export interface ClearCacheMessage {
 }
 
 /**
+ * Reconcile the local library with the signed-in user's server copy.
+ *
+ * Sent by the popup after signing in, so a library built up signed out is kept
+ * rather than replaced.
+ */
+export interface SyncLibraryMessage {
+  type: "SYNC_LIBRARY";
+  payload?: undefined;
+}
+
+/**
  * Union of all message types
  */
 export type Message =
@@ -103,7 +115,8 @@ export type Message =
   | GetStatusMessage
   | SetEnabledMessage
   | UpdateSettingsMessage
-  | ClearCacheMessage;
+  | ClearCacheMessage
+  | SyncLibraryMessage;
 
 /**
  * Extension status reported to the popup
@@ -163,6 +176,8 @@ export interface MessageResponseMap {
   SET_ENABLED: ClapboardSettings;
   UPDATE_SETTINGS: ClapboardSettings;
   CLEAR_CACHE: { cleared: true };
+  /** Entries held after syncing, or null when signed out */
+  SYNC_LIBRARY: { entries: number } | null;
 }
 
 /**
