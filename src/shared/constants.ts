@@ -94,19 +94,28 @@ export const SUPPORTED_SITES = {
     },
     selectors: {
       titlePage: [
-        '[data-uia="title-info"]',
-        '[data-uia="previewModal--container"]',
-        ".title-info-metadata",
+        '[data-uia="modal-motion-container-DETAIL_MODAL"]',
+        '[data-uia="previewModal--detailsMetadata"]',
+        ".previewModal--container",
         ".watch-video",
       ],
+      // Netflix opens a title as a modal *over* the browse grid, so every
+      // selector here is scoped inside that modal. The page behind it has a
+      // `billboard-title` that looks ideal and belongs to whatever Netflix is
+      // promoting — reading it would confidently show the wrong film.
       titleText: [
-        '[data-uia="title-info-title"]',
-        '[data-uia="title-info"] h1',
-        '[data-uia="previewModal--section-header"] strong',
-        ".title-title",
-        ".video-title h4",
+        '[data-uia="modal-motion-container-DETAIL_MODAL"] img.playerModel--player__storyArt[alt]',
+        '[data-uia="modal-motion-container-DETAIL_MODAL"] .previewModal--player-titleTreatment img[alt]',
+        '[data-uia="modal-motion-container-DETAIL_MODAL"] img[alt]',
+        ".previewModal--player-titleTreatment img[alt]",
+        "img.playerModel--player__storyArt[alt]",
+        ".watch-video .video-title h4",
       ],
-      overlayAnchor: [".detail-modal", '[data-uia="title-info"]', ".watch-video"],
+      overlayAnchor: [
+        '[data-uia="modal-motion-container-DETAIL_MODAL"]',
+        ".previewModal--container",
+        ".watch-video",
+      ],
       seriesIndicator: ['[data-uia="episode-list"]', ".episodeSelector", ".season-list"],
     },
   },

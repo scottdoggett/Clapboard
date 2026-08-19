@@ -102,9 +102,19 @@ export function detectCurrentTitle(): TitleInfo | null {
     if (raw) candidates.push({ raw, source: "dom" });
   }
 
-  // Layer 2 — document metadata, only while it still describes this page
+  // Layer 2 — structured metadata, only while it still describes this page
   if (isDocumentFresh()) {
-    candidates.push(...readStructuredCandidates(config.name));
+    candidates.push(...readStructuredCandidates());
+  }
+
+  // Layer 3 — the tab title, which is exempt from the freshness rule above.
+  // JSON-LD and og:title are baked into the served HTML and go stale the
+  // moment a single-page app navigates; the tab title is the opposite — the
+  // router actively maintains it, because users navigate by it. On Netflix it
+  // is the only correct title on the page after opening a preview modal.
+  const docTitle = document.title?.trim();
+  if (docTitle && docTitle.toLowerCase() !== config.name.toLowerCase()) {
+    candidates.push({ raw: docTitle, source: "documentTitle" });
   }
 
   return selectTitle(candidates, urlType ?? detectContentType(site));
@@ -141,10 +151,12 @@ function readTitleText(selector: string): string | null {
 /**
  * Collect title candidates from the document's structured metadata.
  *
- * @param siteName - Display name of the platform, for branding removal
+ * Only the parts baked in at load — the tab title is handled by the caller,
+ * which trusts it regardless of navigation.
+ *
  * @returns Candidates in descending order of trust
  */
-function readStructuredCandidates(siteName: string): TitleCandidate[] {
+function readStructuredCandidates(): TitleCandidate[] {
   const candidates: TitleCandidate[] = [];
 
   // schema.org JSON-LD — carries the year and the movie/series distinction
@@ -172,12 +184,6 @@ function readStructuredCandidates(siteName: string): TitleCandidate[] {
     const meta = safeQuerySelector(selector);
     const content = meta?.getAttribute("content")?.trim();
     if (content) candidates.push({ raw: content, source: "meta" });
-  }
-
-  // Last resort: the tab title, which is mostly branding
-  const docTitle = document.title?.trim();
-  if (docTitle && docTitle.toLowerCase() !== siteName.toLowerCase()) {
-    candidates.push({ raw: docTitle, source: "documentTitle" });
   }
 
   return candidates;

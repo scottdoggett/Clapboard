@@ -53,13 +53,16 @@ Order of operations in `detectCurrentTitle()`:
 
 1. **URL gate.** `urlPatterns.title` must match, or detection stops. This is what keeps the overlay off browse, search, and account pages — the heading selectors are broad on purpose, and Prime Video's fallback really is a bare `h1`, which is only safe because the gate runs first.
 2. **Live DOM.** Each `selectors.titleText` candidate in turn, most specific first. These follow client-side navigation, so they're trusted above everything else. An `<img>` match reads its `alt` (Disney+ and Netflix render title treatments as images).
-3. **Document metadata** — JSON-LD, then Open Graph, then `document.title`. Structured and stable across redesigns, but baked in at load: on a single-page app it describes whatever page was *served*. `dom.ts` records `location.href` at module load and only consults these while the URL still matches.
+3. **Baked-in metadata** — JSON-LD, then Open Graph. Structured and stable across redesigns, but written into the served HTML: on a single-page app it describes whatever page was *served*. `dom.ts` records `location.href` at module load and only consults these while the URL still matches.
+4. **The tab title**, which is deliberately *exempt* from that freshness rule. A router actively maintains `document.title` because users navigate by it, unlike JSON-LD script tags which it never rewrites. On Netflix this matters: opening a title redirects to `/browse?jbv=…` and the tab title is then the only correct title on the page.
 
 Candidates are merged rather than raced: the first usable title wins, and fields it lacks (typically the year) are filled from later candidates.
 
 Content type comes from the URL where the platform encodes it (`/movies/` vs `/series/`), otherwise from a `seriesIndicator` element, otherwise stays `undefined` — a missing episode list may just mean it hasn't rendered.
 
 Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patterns, and selector candidate lists. Add its URL shapes to `scripts/verify-detection.ts` and a fixture page to `scripts/verify-dom.ts` at the same time.
+
+**Netflix is the awkward one.** Opening a title redirects to the browse grid with `?jbv=` and renders the film in a modal *over* it. Every Netflix `titleText` selector is therefore scoped inside `[data-uia="modal-motion-container-DETAIL_MODAL"]`: the page behind the modal has a `billboard-title` that looks like exactly what you want and belongs to whatever Netflix is promoting. The real title is in an image alt (`img.playerModel--player__storyArt`), and the page carries no `og:title` or JSON-LD at all.
 
 **On the fixtures:** `verify-dom.ts` runs the real `detectCurrentTitle` against jsdom pages modelled on each platform's markup. It proves the machinery — gate, layering, alt-text titles, staleness — but *not* that the selectors match the live sites, since the fixtures are written here. When you add a "this page should detect nothing" fixture, give it a **real title** in title-page markup (a promoted billboard, a hero carousel). A fixture whose heading is "Home" passes on the plausibility check instead of the gate and proves nothing — mutation-testing caught exactly that, twice.
 

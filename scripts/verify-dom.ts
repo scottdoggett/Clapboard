@@ -67,13 +67,14 @@ const jsonLd = (data: unknown) =>
 // --- Netflix ---------------------------------------------------------------
 
 check(
-  "netflix title page reads the heading",
+  "netflix title page reads the modal's story art",
   await detect(
     "https://www.netflix.com/title/81234567",
-    `<head><title>Inception | Netflix</title>
-     <meta property="og:title" content="Watch Inception | Netflix Official Site">
+    `<head><title>Inception - Netflix</title>
      ${jsonLd({ "@type": "Movie", name: "Inception", datePublished: "2010-07-16" })}</head>
-     <body><div data-uia="title-info"><h1 data-uia="title-info-title">Inception</h1></div></body>`
+     <body><div data-uia="modal-motion-container-DETAIL_MODAL">
+       <img class="playerModel--player__storyArt" alt="Inception">
+     </div></body>`
   ),
   { title: "Inception", year: 2010, type: "movie" }
 );
@@ -109,8 +110,8 @@ check(
   "netflix jbv modal is a title page",
   await detect(
     "https://www.netflix.com/browse?jbv=81234567",
-    `<body><div data-uia="previewModal--container">
-       <div data-uia="previewModal--section-header"><strong>The Bear</strong></div>
+    `<body><div data-uia="modal-motion-container-DETAIL_MODAL">
+       <div class="previewModal--player-titleTreatment"><img alt="The Bear"></div>
        <div data-uia="episode-list"></div>
      </div></body>`
   ),
@@ -311,10 +312,14 @@ check(
 {
   const { mod } = await loadPage(
     "https://www.netflix.com/title/81234567",
-    `<body><div class="detail-modal"></div><div data-uia="title-info"></div></body>`
+    `<body>
+       <div class="previewModal--container">behind</div>
+       <div data-uia="modal-motion-container-DETAIL_MODAL" class="detail-modal"></div>
+     </body>`
   );
   check("isOnTitlePage agrees with the gate", mod.isOnTitlePage(), true);
-  // Anchors are tried in order, most specific first
+  // Anchors are tried in list order, not document order — the modal container
+  // is listed first because it is the element the overlay should sit inside
   check(
     "overlay anchor takes the first match",
     mod.getOverlayAnchor()?.className,
@@ -329,6 +334,63 @@ check(
   );
   check("isOnTitlePage rejects browse", mod.isOnTitlePage(), false);
   check("no anchor when nothing matches", mod.getOverlayAnchor(), null);
+}
+
+// --- Netflix, as it really is ----------------------------------------------
+// Reproduced from a live page: opening a title redirects to the browse grid
+// with ?jbv= and renders the film in a modal *over* it. Everything here — the
+// URL, the absent og/JSON-LD, the tab title, the billboard's text, the story
+// art alt — was captured from the real DOM.
+{
+  const realNetflix = `<head><title>The Wolf of Wall Street - Netflix</title></head>
+    <body>
+      <h1 class="default-ltr-iqcdef-cache-5ur8x">Home</h1>
+      <!-- The billboard belongs to whatever Netflix is promoting, not to the
+           modal. Its text is metadata, and reading it would show a wrong film. -->
+      <div data-uia="billboard-title">Show•Documentary•2026•3 Episodes•TV-MA</div>
+      <div data-uia="titleCard--container">2h 10m2015RHDA group of wily opportunists</div>
+      <div data-uia="modal-motion-container-DETAIL_MODAL">
+        <div class="previewModal--player-titleTreatmentWrapper">
+          <img class="playerModel--player__storyArt has-smaller" alt="The Wolf of Wall Street">
+        </div>
+        <div data-uia="previewModal--detailsMetadata"></div>
+      </div>
+    </body>`;
+
+  check(
+    "netflix jbv modal reads the title from the modal, not the billboard",
+    await detect("https://www.netflix.com/browse?jbv=70266676", realNetflix),
+    { title: "The Wolf of Wall Street", year: undefined, type: undefined }
+  );
+
+  // The tab title is the only correct title on this page once the SPA has
+  // navigated, so it must survive the staleness guard that JSON-LD is subject to
+  const { dom, mod } = await loadPage(
+    "https://www.netflix.com/title/70266676",
+    `<head><title>The Wolf of Wall Street - Netflix</title></head><body></body>`
+  );
+  dom.window.history.pushState({}, "", "/browse?jbv=70266676");
+
+  check(
+    "the tab title survives an SPA navigation",
+    mod.detectCurrentTitle(),
+    { title: "The Wolf of Wall Street", year: undefined, type: undefined }
+  );
+
+  // ...but baked-in metadata still must not
+  const stale = await loadPage(
+    "https://www.netflix.com/title/1",
+    `<head><title>Netflix</title>
+     ${jsonLd({ "@type": "Movie", name: "Some Other Film", datePublished: "1999" })}</head>
+     <body></body>`
+  );
+  stale.dom.window.history.pushState({}, "", "/title/2");
+
+  check(
+    "stale JSON-LD is still rejected after navigating",
+    stale.mod.detectCurrentTitle(),
+    null
+  );
 }
 
 // --- SPA navigation watching -----------------------------------------------
