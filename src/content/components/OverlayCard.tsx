@@ -7,6 +7,8 @@
 
 import React, { useState } from "react";
 import type { AiScoreResult, Movie, Rating } from "@shared/types/movie";
+import { usePosterPalette } from "../hooks/usePosterPalette";
+import { toCss, toCssAlpha, type Palette } from "@shared/utils/color";
 import RatingBadge from "./RatingBadge";
 import AwardsBadge from "./AwardsBadge";
 import ScoreBreakdown from "./ScoreBreakdown";
@@ -57,6 +59,12 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
 
+  // Colours come from the film's own poster, so the card reads as part of what
+  // you're looking at rather than as something bolted on. Null until the image
+  // decodes, and null forever if it can't be read — the card is styled to work
+  // either way rather than waiting.
+  const palette = usePosterPalette(movie.posterUrl);
+
   /**
    * Opening the section is what pays for the scoring run, so the request is
    * fired here rather than on mount — most titles a user passes never get
@@ -73,44 +81,91 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
     return (
       <button
         onClick={() => setIsMinimized(false)}
-        className="cb-bg-surface cb-rounded-full cb-p-3 cb-shadow-overlay hover:cb-bg-surface-light cb-transition-colors"
+        className="cb-rounded-full cb-p-3 cb-shadow-overlay cb-transition-transform hover:cb-scale-110"
+        style={surfaceStyle(palette)}
         aria-label="Expand Clapboard overlay"
       >
-        {/* TODO: Replace with actual Clapboard icon */}
         <span className="cb-text-xl">🎬</span>
       </button>
     );
   }
 
   return (
-    <div className="cb-bg-surface cb-rounded-overlay cb-shadow-overlay cb-animate-slide-up cb-w-80">
-      {/* Header */}
-      <div className="cb-flex cb-items-start cb-justify-between cb-p-4 cb-border-b cb-border-surface-lighter">
+    <div
+      className="cb-rounded-overlay cb-shadow-overlay cb-animate-slide-up cb-w-[400px] cb-overflow-hidden cb-backdrop-blur-xl"
+      style={surfaceStyle(palette)}
+    >
+      {/* Header — the poster sets the card's colour, so it leads */}
+      <div
+        className="cb-flex cb-items-start cb-gap-3 cb-p-4"
+        style={headerStyle(palette)}
+      >
+        {movie.posterUrl && (
+          <img
+            src={movie.posterUrl}
+            alt=""
+            className="cb-w-16 cb-h-24 cb-rounded-md cb-object-cover cb-flex-shrink-0 cb-shadow-lg"
+            style={{ boxShadow: palette ? `0 4px 20px ${toCssAlpha(palette.accent, 0.35)}` : undefined }}
+          />
+        )}
+
         <div className="cb-flex-1 cb-min-w-0">
-          <h2 className="cb-text-white cb-font-semibold cb-text-base cb-truncate">
+          <h2
+            className="cb-font-semibold cb-text-lg cb-leading-tight cb-m-0"
+            style={{ color: palette ? toCss(palette.onSurface) : undefined }}
+          >
             {movie.title}
           </h2>
-          <div className="cb-flex cb-items-center cb-gap-2 cb-text-sm">
-            {movie.year && <span className="cb-text-gray-400">{movie.year}</span>}
+
+          <div className="cb-flex cb-items-center cb-gap-2 cb-mt-1.5 cb-flex-wrap">
+            {movie.year && (
+              <span className="cb-text-xs cb-opacity-70" style={mutedStyle(palette)}>
+                {movie.year}
+              </span>
+            )}
+            {movie.runtime && (
+              <span className="cb-text-xs cb-opacity-70" style={mutedStyle(palette)}>
+                {formatRuntime(movie.runtime)}
+              </span>
+            )}
             {averageScore !== null && (
-              <span className={getScoreColorClass(averageScore)}>
+              <span
+                className={`cb-text-xs cb-font-semibold cb-px-2 cb-py-0.5 cb-rounded-full ${
+                  palette ? "" : getScoreColorClass(averageScore)
+                }`}
+                style={
+                  palette
+                    ? { background: toCss(palette.accentSurface), color: "#fff" }
+                    : undefined
+                }
+              >
                 {averageScore} · {getScoreTier(averageScore)}
               </span>
             )}
           </div>
+
+          {movie.genre && movie.genre.length > 0 && (
+            <p className="cb-text-xs cb-mt-1.5 cb-m-0 cb-opacity-60 cb-truncate" style={mutedStyle(palette)}>
+              {movie.genre.slice(0, 3).join(" · ")}
+            </p>
+          )}
         </div>
 
-        {/* Controls */}
-        <div className="cb-flex cb-items-center cb-gap-1 cb-ml-2">
-          <button
-            onClick={() => setIsMinimized(true)}
-            className="cb-text-gray-400 hover:cb-text-white cb-p-1"
-            aria-label="Minimize"
-          >
-            <MinimizeIcon />
-          </button>
-        </div>
+        <button
+          onClick={() => setIsMinimized(true)}
+          className="cb-p-1 cb-opacity-60 hover:cb-opacity-100 cb-transition-opacity cb-flex-shrink-0"
+          style={mutedStyle(palette)}
+          aria-label="Minimize"
+        >
+          <MinimizeIcon />
+        </button>
       </div>
+
+      {/* A hairline in the poster's colour, tying the sections together */}
+      <div
+        className="cb-h-px cb-w-full"
+        style={{ background: palette ? toCssAlpha(palette.accent, 0.35) : "rgba(255,255,255,0.08)" }}
+      />
 
       {/* Ratings Section */}
       <div className="cb-p-4">
@@ -122,7 +177,10 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
 
         {/* Show placeholder if no ratings yet */}
         {ratings.length === 0 && (
-          <p className="cb-text-gray-400 cb-text-sm cb-text-center cb-py-2">
+          <p
+            className="cb-text-sm cb-text-center cb-py-2 cb-opacity-60 cb-m-0"
+            style={mutedStyle(palette)}
+          >
             No ratings available yet
           </p>
         )}
@@ -140,7 +198,13 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
         <>
           <button
             onClick={toggleAiSection}
-            className="cb-w-full cb-px-4 cb-py-2 cb-text-sm cb-text-gray-400 hover:cb-text-white cb-border-t cb-border-surface-lighter cb-flex cb-items-center cb-justify-center cb-gap-1"
+            className="cb-w-full cb-px-4 cb-py-2.5 cb-text-sm cb-opacity-70 hover:cb-opacity-100 cb-transition-opacity cb-flex cb-items-center cb-justify-center cb-gap-1"
+            style={{
+              ...mutedStyle(palette),
+              borderTop: palette
+                ? `1px solid ${toCssAlpha(palette.accent, 0.2)}`
+                : "1px solid rgba(255,255,255,0.06)",
+            }}
           >
             {isExpanded ? "Hide" : "Show"} AI Analysis
             <ChevronIcon direction={isExpanded ? "up" : "down"} />
@@ -155,8 +219,13 @@ const OverlayCard: React.FC<OverlayCardProps> = ({
       )}
 
       {/* Footer */}
-      <div className="cb-px-4 cb-py-2 cb-border-t cb-border-surface-lighter">
-        <span className="cb-text-gray-500 cb-text-xs">Clapboard</span>
+      <div
+        className="cb-px-4 cb-py-2"
+        style={{ borderTop: palette ? `1px solid ${toCssAlpha(palette.accent, 0.2)}` : "1px solid rgba(255,255,255,0.06)" }}
+      >
+        <span className="cb-text-xs cb-opacity-50" style={mutedStyle(palette)}>
+          Clapboard
+        </span>
       </div>
     </div>
   );
@@ -221,6 +290,53 @@ function formatWait(ms: number): string {
 
   const hours = Math.round(minutes / 60);
   return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
+/**
+ * The card's ground: a gradient from the poster's colour into near-black, so
+ * the artwork's mood carries without the text losing its footing.
+ *
+ * Falls back to the neutral surface when no palette could be read — a
+ * black-and-white poster, or a CDN that stops sending CORS headers.
+ */
+function surfaceStyle(palette: Palette | null): React.CSSProperties {
+  if (!palette) return { background: "rgb(24, 24, 27)", color: "#fff" };
+
+  return {
+    background: `linear-gradient(160deg, ${toCss(palette.surface)} 0%, rgb(12, 12, 14) 100%)`,
+    color: toCss(palette.onSurface),
+    border: `1px solid ${toCssAlpha(palette.accent, 0.25)}`,
+  };
+}
+
+/**
+ * A wash of the accent behind the header, strongest at the poster.
+ */
+function headerStyle(palette: Palette | null): React.CSSProperties {
+  if (!palette) return {};
+
+  return {
+    background: `linear-gradient(135deg, ${toCssAlpha(palette.accent, 0.22)} 0%, transparent 70%)`,
+  };
+}
+
+/**
+ * Secondary text — the palette's readable colour, dimmed by the caller's
+ * opacity class rather than by a second colour, so contrast stays predictable.
+ */
+function mutedStyle(palette: Palette | null): React.CSSProperties {
+  return { color: palette ? toCss(palette.onSurface) : "rgb(161, 161, 170)" };
+}
+
+/**
+ * "148" -> "2h 28m"
+ */
+function formatRuntime(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+
+  if (hours === 0) return `${rest}m`;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
 
 /**

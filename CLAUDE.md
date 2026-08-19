@@ -165,6 +165,15 @@ Custom esbuild script that:
 - Resolves path aliases (`@shared/*`, `@content/*`, etc.) matching `tsconfig.json`
 - Copies manifest, icons, popup HTML, and assets to `dist/`
 
+### Overlay Theming
+
+The card colours itself from the film's own poster (`usePosterPalette` → `src/shared/utils/color.ts`), so it reads as part of what you're looking at rather than as an extension bolted onto the page.
+
+- It works only because both poster CDNs (`m.media-amazon.com`, `image.tmdb.org`) send `Access-Control-Allow-Origin: *`; a tainted canvas throws on `getImageData`, which is what the try/catch is for should that change.
+- The accent is the most *saturated* colour, not the most common. Posters are mostly black, so frequency alone returns black every time and makes every card identical.
+- **Text is never placed on the raw accent.** At mid lightness a saturated colour fails the contrast floor against both white *and* black, so no choice of text colour rescues it — `accentSurface` darkens the accent until white is readable, and chips use that. This was found by the contrast test failing, not by inspection.
+- Every palette clears WCAG AA, verified across seven poster colours in `npm run verify:color`. A poster with no saturated colour at all — black-and-white film, stark artwork — returns null and the card uses its neutral theme.
+
 ### Styling
 
 Tailwind **v3**, with the `cb-` prefix configured in `tailwind.config.ts`. Two things to keep in mind:
