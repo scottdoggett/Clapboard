@@ -14,6 +14,7 @@ npm run verify:ai-scores # Check the AI score parser and spend guard
 npm run verify:dom      # Run title detection against fixture pages in jsdom
 npm run verify:awards   # Check the Wikidata award parser against a recorded response
 npm run verify:providers # Check the MDBList and TMDB parsers
+npm run verify:tiles    # Check what a browse-grid tile shows about a title
 npm run doctor          # Preflight: deployment, live key check, feature flags, bundle freshness
 npx convex dev          # Start Convex backend (separate terminal)
 ```
@@ -193,12 +194,15 @@ The card splices into the host page's own layout rather than floating over it, s
 
 What the user has watched, wants to watch, liked, and written about (`src/shared/utils/library.ts`, verified by `npm run verify:library`).
 
-It lives in `chrome.storage.local`, **not** in Convex. There is no auth yet, so a backend copy would be keyed on the anonymous per-installation id — regenerated on reinstall, so no more durable than local storage, in exchange for a round trip per toggle and a server holding a list of what someone watches. The cost is that it doesn't sync between devices; that's the honest limit of storing personal data without accounts, and `exportLibrary` exists so it can move when Phase 4 arrives.
+It lives in `chrome.storage.local`, and that copy is the one every toggle writes — marking a title is a local write, not a round trip, and everything works signed out. Signing in adds a second copy in Convex that the two sides *merge* on `updatedAt` (`librarySync.ts`), so the library survives a reinstall and follows you to another browser without either device erasing the other. `exportLibrary` remains the way out for someone who wants neither.
 
 - Entries are keyed by **IMDb id** where there is one. The same film is "The Office (U.S.)" on one service and "The Office" on another, and its year differs between sources. A normalized title is the fallback, which is what lets a browse tile mark a title before any lookup has run; the entry then migrates to the id key and keeps its marks.
 - An entry recording nothing is **deleted**, not left as a husk — but un-watching a film you reviewed keeps the review. It's the only data here the user created rather than fetched.
 - A title already watched drops off the watchlist.
-- **Browse-grid controls** (`src/content/tiles.ts`) mark a title without opening it. The grid is virtualised, so a periodic sweep over the tiles actually on screen re-applies them, which is far simpler than observing a subtree that churns every frame. They inject plain inline-styled DOM rather than React — nothing to leak into the host page, nothing for its CSS to reach. Clicks stop propagation, or marking a tile would open it.
+- **Browse-grid tiles** (`src/content/tiles.ts`) carry the ratings and the library controls under the artwork, so a title can be judged and marked without opening it. The grid is virtualised, so a periodic sweep over the tiles actually on screen re-applies both, which is far simpler than observing a subtree that churns every frame. They inject plain inline-styled DOM rather than React — nothing to leak into the host page, nothing for its CSS to reach. Clicks stop propagation, or marking a tile would open it.
+- **Ratings on a tile cost a lookup, so they are fetched on a dwell, not on sight.** A tile is decorated the moment Netflix renders its metadata strip, which is the moment the pointer reaches it — and sweeping a mouse along a row does that a dozen times a second. `RATING_DWELL_MS` waits to see whether the strip survives: Netflix tears it out when the hover ends, so a panel still connected after 400ms belongs to a tile someone stopped at. A per-session map keyed by normalized title collapses the rest, including a re-hover while the first request is still in flight.
+- `src/shared/utils/tileSummary.ts` holds what a tile *says* — which sources appear, in what order, formatted how — separate from the DOM writing, and verified by `npm run verify:tiles`. A tile is the one place a score is shown with no context around it: the source is four characters and the number is alone, so "87%" meaning a percentage and "8.8" meaning a ten-point scale is carried entirely by the formatting. Awards collapse to counts ("1 win · 4 noms"), gold when there are wins.
+- A tile knows only a name, so its lookup goes out with the title alone and its entry is keyed by title. When the lookup lands it hands the IMDb id back to the controls, so anything marked *after* that keys by id — and `updateEntry` migrates the earlier title-keyed entry onto it.
 
 ### Outbound Links
 

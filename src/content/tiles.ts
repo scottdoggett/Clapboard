@@ -1,29 +1,36 @@
 /**
  * Browse-Grid Tile Controls
  *
- * Lets a title be marked watched, liked or watchlisted straight from the
- * browse grid, without opening it.
+ * Puts the ratings we hold and the library controls directly under a tile's
+ * artwork, so a title can be judged and marked without opening it.
  *
- * Two things shape how this is written. The grid is virtualised and
+ * Three things shape how this is written. The grid is virtualised and
  * re-rendered constantly as you scroll, so controls have to be re-applied
  * rather than attached once; a periodic sweep over the handful of tiles
  * actually on screen is cheaper and far simpler than observing a subtree that
- * churns every frame. And this injects plain DOM rather than React into
- * someone else's tree, so everything is inline-styled — no stylesheet to leak
- * into the host page, and nothing for the site's CSS to reach.
+ * churns every frame. This injects plain DOM rather than React into someone
+ * else's tree, so everything is inline-styled — no stylesheet to leak into the
+ * host page, and nothing for the site's CSS to reach. And ratings cost a
+ * lookup, which is why they are fetched on a dwell rather than on sight (see
+ * `RATING_DWELL_MS`).
  *
- * Only the title is known here, so entries are keyed by normalized title. Once
- * the same film is opened and its lookup resolves, the entry migrates to its
- * IMDb id and keeps the marks (see `library.ts`).
+ * Only the title is known when a tile is decorated, so entries are keyed by
+ * normalized title. Once the lookup resolves an IMDb id the controls start
+ * passing it, and the entry migrates to the id key keeping its marks (see
+ * `library.ts`).
  */
 
 import { SUPPORTED_SITES, type SupportedSite } from "@shared/constants";
+import type { MessageResponse, MessageResponseMap } from "@shared/types/messages";
+import type { MovieData } from "@shared/types/movie";
 import {
   getTitleIndex,
   titleKey,
   updateEntry,
+  type LibrarySubject,
   type Sentiment,
 } from "@shared/utils/library";
+import { buildTileSummary, type TileSummary } from "@shared/utils/tileSummary";
 
 /** Marks a tile as already decorated. */
 const MARKER = "data-clapboard-tile";
@@ -37,7 +44,35 @@ const MARKER = "data-clapboard-tile";
  */
 const SWEEP_MS = 500;
 
+/**
+ * How long a tile must stay on screen before its ratings are fetched.
+ *
+ * Every fetch is potentially a title resolution against a provider with a
+ * daily quota, and sweeping a mouse across a row decorates a dozen tiles in
+ * under a second. Waiting for the strip to survive this long is the difference
+ * between "the pointer passed over it" and "someone stopped to look" — the
+ * strip is removed the moment Netflix loses the hover, so a tile still in the
+ * document here is a tile still being looked at.
+ */
+const RATING_DWELL_MS = 400;
+
+const LABEL_COLOR = "#8c8c8c";
+const VALUE_COLOR = "#fff";
+/** Desaturated gold, the same one wins use in the detail overlay */
+const WIN_COLOR = "#d4b36a";
+
 type TileState = { watchedAt?: number; watchlistedAt?: number; sentiment?: Sentiment };
+
+/**
+ * Lookups already made this page session, keyed by normalized title.
+ *
+ * A row is scrolled past and back constantly, and each pass re-decorates the
+ * same tiles. Caching the promise rather than the result also collapses the
+ * duplicate requests that a re-hover during an in-flight lookup would make.
+ * The background worker caches across sessions; this only stops us asking it
+ * the same thing twice in a row.
+ */
+const summaries = new Map<string, Promise<MovieData | null>>();
 
 /**
  * Start decorating browse tiles.
@@ -69,7 +104,9 @@ export function startTileControls(site: SupportedSite): () => void {
       if (!title) continue;
 
       host.setAttribute(MARKER, "1");
-      host.appendChild(buildControls(title, () => index[titleKey(title)] ?? {}, refreshIndex));
+      host.appendChild(
+        buildTilePanel(title, () => index[titleKey(title)] ?? {}, refreshIndex)
+      );
     }
   };
 
@@ -100,16 +137,164 @@ function readTitle(tile: Element, selector: string): string | null {
 }
 
 /**
- * Build the control row for one tile.
+ * Build the whole block for one tile: ratings above, controls below.
  */
-function buildControls(
+function buildTilePanel(
   title: string,
   readState: () => TileState,
   refreshIndex: () => Promise<void>
 ): HTMLElement {
+  const panel = document.createElement("div");
+  panel.style.cssText = "padding:0 14px 12px;";
+
+  // Filled in once the lookup resolves; left empty when it doesn't, since a
+  // tile is not the place to explain that a backend is unreachable
+  const summarySlot = document.createElement("div");
+  panel.appendChild(summarySlot);
+
+  // What the controls know about the title. It starts as just the name and
+  // gains an IMDb id when the lookup lands, so a mark made afterwards is keyed
+  // by id rather than by a name that differs between services.
+  const subject: LibrarySubject = { title };
+
+  panel.appendChild(buildControls(subject, readState, refreshIndex));
+
+  scheduleSummary(title, panel, summarySlot, subject);
+
+  return panel;
+}
+
+/**
+ * Fetch the title's ratings once it has been on screen long enough to mean
+ * something, then render them.
+ */
+function scheduleSummary(
+  title: string,
+  panel: HTMLElement,
+  slot: HTMLElement,
+  subject: LibrarySubject
+): void {
+  setTimeout(() => {
+    // The strip is torn out when the hover ends, so a detached panel is a tile
+    // the pointer merely crossed
+    if (!panel.isConnected) return;
+
+    void fetchSummary(title).then((data) => {
+      if (!panel.isConnected || !data) return;
+
+      if (data.movie.imdbId) subject.imdbId = data.movie.imdbId;
+      subject.year = data.movie.year;
+      subject.posterUrl = data.movie.posterUrl;
+
+      renderSummary(slot, buildTileSummary(data));
+    });
+  }, RATING_DWELL_MS);
+}
+
+/**
+ * Ask the background worker for a title's data, once per title per session.
+ */
+function fetchSummary(title: string): Promise<MovieData | null> {
+  const key = titleKey(title);
+  const existing = summaries.get(key);
+  if (existing) return existing;
+
+  const request = chrome.runtime
+    .sendMessage({ type: "GET_MOVIE_DATA", payload: { title } })
+    .then((response: MessageResponse) =>
+      response.success
+        ? (response.data as MessageResponseMap["GET_MOVIE_DATA"])
+        : null
+    )
+    .catch(() => null);
+
+  summaries.set(key, request);
+  return request;
+}
+
+/**
+ * Draw the rating chips and award tally.
+ */
+function renderSummary(slot: HTMLElement, summary: TileSummary): void {
+  if (summary.chips.length === 0 && !summary.awards) return;
+
+  slot.textContent = "";
+
+  if (summary.chips.length > 0) {
+    const row = document.createElement("div");
+    row.style.cssText =
+      "display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:8px;";
+
+    for (const chip of summary.chips) {
+      row.appendChild(buildChip(chip.label, chip.value, chip.href));
+    }
+
+    slot.appendChild(row);
+  }
+
+  if (summary.awards) {
+    const line = document.createElement("div");
+    line.textContent = summary.awards.label;
+    line.style.cssText =
+      `font-size:11px;line-height:14px;margin-bottom:8px;` +
+      `color:${summary.awards.wins > 0 ? WIN_COLOR : LABEL_COLOR};`;
+    slot.appendChild(line);
+  }
+}
+
+/**
+ * One rating chip, a link where the source can be reached.
+ *
+ * Netflix's tiles open the title on click, so the anchor has to stop the event
+ * reaching them — otherwise clicking IMDb both opens IMDb and starts playing
+ * something.
+ */
+function buildChip(label: string, value: string, href: string | null): HTMLElement {
+  const chip = document.createElement(href ? "a" : "span");
+  chip.style.cssText =
+    "display:inline-flex;align-items:baseline;gap:4px;padding:1px 6px;border-radius:3px;" +
+    "border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.045);" +
+    "font-size:11px;line-height:16px;text-decoration:none;white-space:nowrap;";
+
+  const name = document.createElement("span");
+  name.textContent = label;
+  name.style.color = LABEL_COLOR;
+
+  const score = document.createElement("span");
+  score.textContent = value;
+  score.style.color = VALUE_COLOR;
+
+  chip.append(name, score);
+
+  if (href && chip instanceof HTMLAnchorElement) {
+    chip.href = href;
+    chip.target = "_blank";
+    chip.rel = "noopener noreferrer";
+    chip.title = `${label} ${value}`;
+    chip.style.cursor = "pointer";
+
+    chip.addEventListener("click", (event) => event.stopPropagation());
+    chip.addEventListener("mouseenter", () => {
+      chip.style.borderColor = "rgba(255,255,255,0.4)";
+    });
+    chip.addEventListener("mouseleave", () => {
+      chip.style.borderColor = "rgba(255,255,255,0.14)";
+    });
+  }
+
+  return chip;
+}
+
+/**
+ * Build the control row for one tile.
+ */
+function buildControls(
+  subject: LibrarySubject,
+  readState: () => TileState,
+  refreshIndex: () => Promise<void>
+): HTMLElement {
   const row = document.createElement("div");
-  row.style.cssText =
-    "display:flex;gap:6px;align-items:center;padding:0 14px 12px;";
+  row.style.cssText = "display:flex;gap:6px;align-items:center;";
 
   let state = readState();
 
@@ -146,7 +331,9 @@ function buildControls(
       event.preventDefault();
       event.stopPropagation();
 
-      void updateEntry({ title }, toggle()).then(async (entry) => {
+      // `subject` is read at click time, not captured: by now the lookup may
+      // have supplied an IMDb id, which is a better key than the tile's name
+      void updateEntry({ ...subject }, toggle()).then(async (entry) => {
         state = {
           watchedAt: entry?.watchedAt,
           watchlistedAt: entry?.watchlistedAt,
@@ -173,6 +360,10 @@ function buildControls(
     sentiment: state.sentiment === "liked" ? undefined : ("liked" as const),
   }));
 
+  add("Not for me", THUMB_DOWN, () => state.sentiment === "disliked", () => ({
+    sentiment: state.sentiment === "disliked" ? undefined : ("disliked" as const),
+  }));
+
   paint();
   return row;
 }
@@ -185,3 +376,11 @@ const PLUS =
 
 const THUMB =
   '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 10.5v9H4.5a1 1 0 01-1-1v-7a1 1 0 011-1H7z"/><path d="M7 10.5l4.2-7.1a1 1 0 011.7 0c.4.6.5 1.4.3 2.1L12.4 9h5.3a2 2 0 011.9 2.6l-1.9 6A2 2 0 0115.8 19H7"/></svg>';
+
+/**
+ * The same path turned about the icon's own centre. Rotating the `<svg>` root
+ * would spin it about the origin and take it off the canvas, so the rotation
+ * goes on a group with an explicit centre.
+ */
+const THUMB_DOWN =
+  '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><g transform="rotate(180 12 12)"><path d="M7 10.5v9H4.5a1 1 0 01-1-1v-7a1 1 0 011-1H7z"/><path d="M7 10.5l4.2-7.1a1 1 0 011.7 0c.4.6.5 1.4.3 2.1L12.4 9h5.3a2 2 0 011.9 2.6l-1.9 6A2 2 0 0115.8 19H7"/></g></svg>';
