@@ -20,6 +20,7 @@
     "verify:links": "tsx scripts/verify-links.ts",
     "verify:library": "tsx scripts/verify-library.ts",
     "verify:tiles": "tsx scripts/verify-tiles.ts",
+    "verify:import": "tsx scripts/verify-import.ts",
     "doctor": "tsx scripts/doctor.ts",
     "lint": "tsc --noEmit && eslint ."
   },

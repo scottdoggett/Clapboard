@@ -14,6 +14,7 @@ import type { Message, MessageResponse, MessageResponseMap, ExtensionStatus } fr
 import { SUPPORTED_SITES } from "@shared/constants";
 import AuthPanel from "./AuthPanel";
 import LibraryList from "./LibraryList";
+import ImportPanel from "./ImportPanel";
 
 interface AppProps {
   /** Whether a Convex deployment is configured, so accounts are possible */
@@ -159,6 +160,20 @@ const App: React.FC<AppProps> = ({ hasConvex = false }) => {
             without one.
           </p>
         )}
+      </Section>
+
+      <Section title="Import">
+        <ImportPanel
+          onImported={(summary) => {
+            setRefreshKey((key) => key + 1);
+
+            // An import can add thousands of entries; push them to the account
+            // straight away rather than waiting for the next sign-in
+            if (summary.added + summary.updated > 0) {
+              void sendMessage({ type: "SYNC_LIBRARY" }).catch(() => undefined);
+            }
+          }}
+        />
       </Section>
 
       <Section title="Your list">

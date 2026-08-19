@@ -199,7 +199,7 @@ export function groupEntries(entries: LibraryEntry[]): {
 // Storage
 // ---------------------------------------------------------------------------
 
-type LibraryMap = Record<string, LibraryEntry>;
+export type LibraryMap = Record<string, LibraryEntry>;
 
 async function readLibrary(): Promise<LibraryMap> {
   const stored = await chrome.storage.local.get(STORAGE_KEYS.LIBRARY);
@@ -209,6 +209,17 @@ async function readLibrary(): Promise<LibraryMap> {
 async function writeLibrary(library: LibraryMap): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.LIBRARY]: library });
 }
+
+/**
+ * Read and write the whole library at once.
+ *
+ * These exist for the importer, which replaces thousands of entries in one
+ * pass and would otherwise read and write storage once per title. Everything
+ * else should go through `updateEntry`, which handles key migration and
+ * deletion; these two do neither.
+ */
+export const readLibraryMap = readLibrary;
+export const writeLibraryMap = writeLibrary;
 
 /**
  * Read one title's entry.

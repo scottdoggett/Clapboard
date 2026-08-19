@@ -15,6 +15,7 @@ npm run verify:dom      # Run title detection against fixture pages in jsdom
 npm run verify:awards   # Check the Wikidata award parser against a recorded response
 npm run verify:providers # Check the MDBList and TMDB parsers
 npm run verify:tiles    # Check what a browse-grid tile shows about a title
+npm run verify:import   # Check the CSV/ZIP watch-history importers
 npm run doctor          # Preflight: deployment, live key check, feature flags, bundle freshness
 npx convex dev          # Start Convex backend (separate terminal)
 ```
@@ -203,6 +204,29 @@ It lives in `chrome.storage.local`, and that copy is the one every toggle writes
 - **Ratings on a tile cost a lookup, so they are fetched on a dwell, not on sight.** A tile is decorated the moment Netflix renders its metadata strip, which is the moment the pointer reaches it — and sweeping a mouse along a row does that a dozen times a second. `RATING_DWELL_MS` waits to see whether the strip survives: Netflix tears it out when the hover ends, so a panel still connected after 400ms belongs to a tile someone stopped at. A per-session map keyed by normalized title collapses the rest, including a re-hover while the first request is still in flight.
 - `src/shared/utils/tileSummary.ts` holds what a tile *says* — which sources appear, in what order, formatted how — separate from the DOM writing, and verified by `npm run verify:tiles`. A tile is the one place a score is shown with no context around it: the source is four characters and the number is alone, so "87%" meaning a percentage and "8.8" meaning a ten-point scale is carried entirely by the formatting. Awards collapse to counts ("1 win · 4 noms"), gold when there are wins.
 - A tile knows only a name, so its lookup goes out with the title alone and its entry is keyed by title. When the lookup lands it hands the IMDb id back to the controls, so anything marked *after* that keys by id — and `updateEntry` migrates the earlier title-keyed entry onto it.
+
+### Importing a Watch History
+
+Most people arrive with years of viewing already recorded somewhere else, and a library that starts empty stays empty. The popup takes a CSV or a ZIP and folds it in (`src/shared/utils/importParse.ts`, verified by `npm run verify:import`).
+
+**Columns are matched by name, never by position.** Four services, four column orders, and no two agree — but the names are stable enough to match on against a synonym list. It also means a format nobody has seen still imports, which is the only realistic answer for Prime Video and Disney+, neither of which offers a simple export at all.
+
+Two orderings in that list are load-bearing, and both prevent *silent* damage:
+
+- `your rating` must beat `rating`, because an IMDb export carries the site's average alongside the user's own score. Importing the wrong one fills a library with ratings they never gave, and nothing about it looks like an error. `imdb rating` and `average rating` are excluded outright rather than merely deprioritized.
+- `watched date` must beat `date`, because Letterboxd's diary carries both the day the film was seen and the day it was logged.
+
+**A viewing history is a list of episodes; a library is a list of titles.** `collapseEpisodeTitle` folds `Stranger Things: Season 1: Chapter One` into the show. The rule is narrow on purpose — a season marker only counts when something follows it — and that single condition is what separates four cases that otherwise look identical: `Money Heist: Part 1: Episode 1` collapses, `Harry Potter and the Deathly Hallows: Part 1` doesn't, `John Wick: Chapter 2` doesn't, and `Avatar: The Last Airbender: Book 1: Water: …` collapses to the show with the colon in its own name intact. Under-collapsing is the safe direction: `Show: Episode 3` simply fails to resolve, while `John Wick` truncated from `John Wick: Chapter 2` is a *different film that resolves perfectly*.
+
+**An import never takes anything away.** It fills gaps and moves a watch date earlier; it does not clear a mark, overwrite a review typed here, or replace a score set on the stars. Re-importing the same file twice reports nothing changed — which is also the cheapest test that the merge is doing what it claims.
+
+Netflix writes dates in the profile's locale, so `10/01/2019` is genuinely ambiguous and nothing in the file says which it is. An unmistakable day settles it; otherwise it reads month-first, matching the US-default download. Everything is built with `Date.UTC` — these are calendar dates with no time in them, and reading a bare date in local time shifts it across a day boundary for half the world.
+
+**Nothing here performs a lookup.** An import of 4,000 titles would be 4,000 OMDb resolutions against a 1,000-a-day quota. Imported entries key by IMDb id where the export carries one (only IMDb's does) and otherwise by normalized title *alone* — exactly what a browse tile produces — so a Netflix row and a Letterboxd row for the same film land on one entry, and that entry migrates to its id the first time the title is opened. The whole import is folded in memory and written to `chrome.storage` once; routing 3,000 rows through `updateEntry` would be 3,000 round trips to build one object. Measured: 3,008 rows to 16 titles in 6ms.
+
+`src/shared/utils/zip.ts` reads a Letterboxd export without a dependency, because Chrome ships `DecompressionStream("deflate-raw")` and the rest of the format is a few little-endian integers at the end of the file. Zip64, encryption and unknown compression methods are refused rather than mishandled. Each entry keeps its **leaf** name: `watchlist.csv` and `watched.csv` have identical columns and only the name says which is which, and an export folder called `letterboxd-watchlist-2026` would otherwise relabel every file inside it.
+
+**A caveat on the fixtures.** The Netflix shapes (`Title,Date`, and the fuller `ViewingActivity.csv` from a data request) are documented and widely described. The Letterboxd and IMDb rows in `verify-import.ts` are built from third-party descriptions, **not read off a real file** — the same caveat that stands over the MDBList parser. What the tests prove is that the tolerance works. Check the first real export against them.
 
 ### Outbound Links
 
