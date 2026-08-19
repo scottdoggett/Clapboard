@@ -15,6 +15,7 @@
     "verify:ai-scores": "tsx scripts/verify-ai-scores.ts",
     "verify:dom": "tsx scripts/verify-dom.ts",
     "verify:awards": "tsx scripts/verify-awards.ts",
+    "verify:providers": "tsx scripts/verify-providers.ts",
     "doctor": "tsx scripts/doctor.ts",
     "lint": "tsc --noEmit && eslint ."
   },

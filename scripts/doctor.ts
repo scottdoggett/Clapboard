@@ -169,6 +169,32 @@ if (!envList.includes("OMDB_API_KEY")) {
 
 const hasAnthropicKey = envList.includes("ANTHROPIC_API_KEY");
 
+// --- 3b. Optional enrichment providers -------------------------------------
+// None of these is required: each is skipped when unconfigured, and a lookup
+// that loses one still returns ratings. So they're reported, never failed.
+
+const providers: string[] = ["Wikidata awards (no key needed)"];
+const missing: string[] = [];
+
+if (envList.includes("MDBLIST_API_KEY")) {
+  providers.push("MDBList ratings");
+} else {
+  missing.push("MDBLIST_API_KEY — adds Letterboxd ratings (free key at mdblist.com)");
+}
+
+if (envList.includes("TMDB_API_KEY")) {
+  providers.push("TMDB metadata");
+} else {
+  missing.push("TMDB_API_KEY — better artwork, 40 req/sec (free key at themoviedb.org)");
+}
+
+report(
+  missing.length === 0 ? "ok" : "warn",
+  "Enrichment providers",
+  providers.join(", "),
+  missing.length > 0 ? `optional: ${missing.join("; ")}` : undefined
+);
+
 // --- 4. Phase 3 feature flag ----------------------------------------------
 
 if (!FEATURES.AI_SCORES_ENABLED) {

@@ -31,6 +31,8 @@ Clapboard overlays a lightweight card on supported streaming sites that shows:
 | Backend | Convex |
 | Ratings source | OMDb API (fetched server-side, cached in Convex) |
 | Awards source | Wikidata Query Service (SPARQL, no key) |
+| Optional ratings | MDBList (adds Letterboxd) |
+| Optional metadata | TMDB (artwork, ~40 req/sec) |
 | Review scoring | Claude (Opus 5) with server-side web search, via Convex |
 | Styling | Tailwind CSS 3 |
 | Package Manager | npm |
@@ -104,6 +106,12 @@ npx convex env set OMDB_API_KEY <your_omdb_key>
 # Optional — only needed for Phase 3 AI scoring, which is off by default
 npx convex env set ANTHROPIC_API_KEY <your_anthropic_key>
 
+# Optional — adds Letterboxd ratings (free key at mdblist.com)
+npx convex env set MDBLIST_API_KEY <your_mdblist_key>
+
+# Optional — better artwork and metadata (free key at themoviedb.org)
+npx convex env set TMDB_API_KEY <your_tmdb_key>
+
 # Point the extension at your deployment
 cp .env.example .env
 # Edit .env and set CONVEX_URL to the URL that `npx convex dev` printed
@@ -154,6 +162,9 @@ npm run verify:ai-scores
 # Check the Wikidata award parser against a recorded response
 npm run verify:awards
 
+# Check the optional MDBList and TMDB parsers
+npm run verify:providers
+
 # Run title detection against fixture streaming pages in jsdom
 npm run verify:dom
 ```
@@ -182,7 +193,8 @@ Each platform requires custom DOM selectors to detect which title the user is vi
 - ✅ Fetch and display ratings from IMDb, Rotten Tomatoes, and Metacritic
 - ✅ Normalize scores to a common scale for easy comparison
 - ✅ Cache results in Convex and in the extension to minimize API calls
-- ⬜ Letterboxd ratings — no public API, needs a separate provider
+- ✅ Letterboxd ratings — via MDBList, since Letterboxd's own API is
+  approval-only. Optional: set `MDBLIST_API_KEY` on the deployment
 
 ### Phase 2 — Awards & Recognition
 - ✅ Surface Oscar, Golden Globe, BAFTA, and other major award data

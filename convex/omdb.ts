@@ -23,6 +23,10 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { fetchWikidataAwards } from "./wikidata";
 import { mergeAwards } from "./wikidataParse";
+import { fetchMdblistRatings } from "./mdblist";
+import { mergeRatings } from "./mdblistParse";
+import { fetchTmdbMetadata } from "./tmdb";
+import { mergeMetadata } from "./tmdbParse";
 import {
   lookupKey,
   parseAwardTotals,
@@ -82,6 +86,7 @@ function toLookupResult(
       title: movie.title,
       year: movie.year,
       imdbId: movie.imdbId,
+      tmdbId: movie.tmdbId,
       genre: movie.genre,
       posterUrl: movie.posterUrl,
       runtime: movie.runtime,
@@ -172,6 +177,7 @@ export const persistLookup = internalMutation({
       title: v.string(),
       year: v.optional(v.number()),
       imdbId: v.optional(v.string()),
+      tmdbId: v.optional(v.string()),
       genre: v.optional(v.array(v.string())),
       posterUrl: v.optional(v.string()),
       runtime: v.optional(v.number()),
@@ -462,31 +468,54 @@ async function resolveFromOmdb(
 }
 
 /**
- * Replace OMDb's award counts with named awards where Wikidata has them.
+ * Fill out an OMDb result with everything the other providers can add.
  *
- * The two sources answer different questions: Wikidata names the major awards
- * but its coverage of minor festivals is patchy, while OMDb knows the totals
- * and nothing else. So the named awards are listed and OMDb's totals are
- * reduced by what's already shown, giving "and N more" rather than counting
- * the same Oscar twice.
+ * OMDb resolves the title — it's the only one of the four that searches well by
+ * name — and then three optional providers deepen the result, each answering a
+ * question OMDb answers badly or not at all:
+ *
+ * - **Wikidata** names the awards. OMDb only counts them. No key needed.
+ * - **MDBList** adds Letterboxd, which nothing else carries. Needs a key.
+ * - **TMDB** has better artwork, and a rate limit measured per second rather
+ *   than per day. Needs a key.
+ *
+ * None of them is allowed to fail the lookup. Each returns empty on any error
+ * and the result is simply what OMDb gave — a card with ratings and no
+ * Letterboxd score is fine, a card with nothing because a third-party endpoint
+ * was slow is not.
+ *
+ * They run concurrently: none depends on another, and doing them in sequence
+ * would stack three timeouts onto a request a user is waiting on.
  *
  * @param parsed - The parsed OMDb response
  * @param awardsSummary - OMDb's raw `Awards` sentence
- * @returns Awards to persist — OMDb's own list when Wikidata has nothing
+ * @param type - Content type hint from the extension
+ * @returns The enriched movie, ratings and awards
  */
-async function enrichAwards(
+async function enrichLookup(
   parsed: ReturnType<typeof parseOmdbResponse>,
-  awardsSummary: string | undefined
-): Promise<ReturnType<typeof parseOmdbResponse>["awards"]> {
+  awardsSummary: string | undefined,
+  type: "movie" | "series" | undefined
+): Promise<ReturnType<typeof parseOmdbResponse>> {
   const imdbId = parsed.movie.imdbId;
-  if (!imdbId) return parsed.awards;
+  if (!imdbId) return parsed;
 
   const year = parsed.movie.year ?? new Date().getFullYear();
-  const named = await fetchWikidataAwards(imdbId, year);
 
-  if (named.length === 0) return parsed.awards;
+  const [named, extraRatings, tmdbMetadata] = await Promise.all([
+    fetchWikidataAwards(imdbId, year),
+    fetchMdblistRatings(imdbId, type),
+    fetchTmdbMetadata(imdbId),
+  ]);
 
-  return mergeAwards(named, parseAwardTotals(awardsSummary), year);
+  return {
+    movie: mergeMetadata(parsed.movie, tmdbMetadata),
+    ratings: mergeRatings(parsed.ratings, extraRatings),
+    awards:
+      named.length > 0
+        ? mergeAwards(named, parseAwardTotals(awardsSummary), year)
+        : parsed.awards,
+  };
 }
 
 /**
@@ -541,18 +570,13 @@ export const lookup = action({
     }
 
     const parsed = parseOmdbResponse(result.data);
-
-    // OMDb reports awards as counts — "Won 4 Oscars" — with no way to say what
-    // for. Wikidata models each award as its own statement, so it can name
-    // them. It's supplementary and never allowed to fail the lookup, so an
-    // empty result here just means the card shows OMDb's counts as before.
-    const awards = await enrichAwards(parsed, result.data.Awards);
+    const enriched = await enrichLookup(parsed, result.data.Awards, type);
 
     return await ctx.runMutation(internal.omdb.persistLookup, {
       key,
-      movie: parsed.movie,
-      ratings: parsed.ratings,
-      awards,
+      movie: enriched.movie,
+      ratings: enriched.ratings,
+      awards: enriched.awards,
     });
   },
 });

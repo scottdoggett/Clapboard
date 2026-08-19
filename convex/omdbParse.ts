@@ -35,6 +35,8 @@ export interface ParsedAward {
  * Movie metadata parsed out of an OMDb response
  */
 export interface ParsedMovie {
+  /** Set by the TMDB provider when configured, not by OMDb */
+  tmdbId?: string;
   title: string;
   year?: number;
   imdbId?: string;
@@ -53,6 +55,7 @@ export interface LookupResult {
     title: string;
     year?: number;
     imdbId?: string;
+    tmdbId?: string;
     genre?: string[];
     posterUrl?: string;
     runtime?: number;
