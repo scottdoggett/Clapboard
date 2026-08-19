@@ -226,6 +226,35 @@ export function normalizeAwardName(phrase: string): string {
  * @param summary - OMDb's `Awards` field
  * @returns Total wins and nominations, zero when unstated
  */
+/**
+ * Strip a trailing parenthetical qualifier from a title.
+ *
+ * Streaming services disambiguate regional versions in a way the databases
+ * don't: Netflix lists "The Office (U.S.)", "Shameless (U.S.)", "The Bridge
+ * (US)". OMDb has no record under those names, so the lookup fails outright on
+ * a whole class of well-known shows.
+ *
+ * This is only ever used to build a *retry*. The original title is tried first
+ * and the qualifier is often meaningful, so discarding it up front would be
+ * worse than the problem — a few real titles end in parentheses ("Birdman or
+ * (The Unexpected Virtue of Ignorance)").
+ *
+ * @param title - Title as detected on the page
+ * @returns The title without its trailing parenthetical, or null if it has none
+ */
+export function stripTitleQualifier(title: string): string | null {
+  const match = title.match(/^(.+?)\s*\(([^()]*)\)\s*$/);
+  if (!match) return null;
+
+  const base = match[1].trim();
+
+  // A one-word title reduced to nothing, or a qualifier that was the whole
+  // name, leaves us with nothing worth querying
+  if (base.length < 2) return null;
+
+  return base;
+}
+
 export function parseAwardTotals(summary: string | undefined): {
   wins: number;
   nominations: number;

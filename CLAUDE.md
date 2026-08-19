@@ -64,6 +64,8 @@ Content type comes from the URL where the platform encodes it (`/movies/` vs `/s
 
 That metadata line is also where the **release year** comes from on most pages, and both fields matter more than they look: without a type, "Fargo" resolves to the 1996 film or the 2014 series depending on which OMDb returns first, and without a year the same is true of every remake.
 
+When no `metadata` selector matches — which a live run showed is the normal case, the same way every invented Netflix selector failed to match — it falls back to the **opening ~220 characters of the detail view itself**. These pages put the facts line above the synopsis, so the opening stretch is metadata and the rest is prose; reading the whole thing would let "set in 1929" or "a series of events" override the real answer.
+
 `parseMetadataText` has two non-obvious constraints, both taken from a live Netflix page. Netflix concatenates its metadata tokens with no separators — `Limited Series2022TV-MAHD`, `2h2005PG-13HD` — so nothing may depend on word boundaries. And the synopsis usually runs onto the end of the same text, so a film whose plot mentions a "series of events" would misclassify if the markers were checked naively. Hence the order: a runtime in hours is checked first, because a series listing shows seasons or episode counts rather than one duration.
 
 Adding a platform means one new `SUPPORTED_SITES` entry: host patterns, URL patterns, and selector candidate lists. Add its URL shapes to `scripts/verify-detection.ts` and a fixture page to `scripts/verify-dom.ts` at the same time.
@@ -105,6 +107,7 @@ content script → background worker → Convex action (omdb:lookup) → OMDb
 - The OMDb key lives in the Convex deployment (`npx convex env set OMDB_API_KEY <key>`), never in the extension bundle.
 - Both cache layers key on a normalized title (`buildLookupKey` in `src/shared/utils/text.ts`, mirrored by `lookupKey` in `convex/omdbParse.ts` — **keep these two in sync**, or the caches will disagree about what counts as the same title).
 - Negative results are cached too. Streaming sites show plenty of titles OMDb can't match, and without this each SPA navigation would re-query.
+- The resolve ladder tries the exact title (with year, then without), then **drops a trailing parenthetical qualifier**, then falls back to search. That third step exists because streaming services disambiguate regional versions in a way the databases don't — Netflix lists "The Office (U.S.)", and OMDb has no record under that name, so a whole class of well-known shows failed outright. It only ever builds a retry: some real titles end in parentheses.
 - **Only a genuine miss is cached as one.** `classifyOmdbFailure` reads both the status and the body, because neither is sufficient alone: OMDb returns 401 for a wrong key *and* an exhausted quota, and a body whose `Error` we don't recognise must not be read as "no such title" — that verdict gets cached and outlives its cause. Anything unfamiliar is treated as transient and retried (3 attempts, backing off), then surfaced with OMDb's own wording rather than a bare status.
 - The extension addresses backend functions by string (`makeFunctionReference("omdb:lookup")`) rather than the generated `api` object, so renaming a Convex function is a runtime break, not a compile error.
 

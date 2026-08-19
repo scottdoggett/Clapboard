@@ -450,6 +450,55 @@ check(
   );
 }
 
+// --- Metadata fallback when the selector misses ----------------------------
+// A live run still returned year: undefined, because the dedicated metadata
+// selector did not match — the same way every invented Netflix selector did
+// not match. The fallback reads the detail view's own opening text.
+{
+  check(
+    "falls back to the container's opening text for the year",
+    await detect(
+      "https://www.netflix.com/browse?jbv=1",
+      `<head><title>The Wolf of Wall Street - Netflix</title></head>
+       <body><div data-uia="modal-motion-container-DETAIL_MODAL">
+         <img class="playerModel--player__storyArt" alt="The Wolf of Wall Street">
+         <div class="some-markup-i-did-not-anticipate">3h2013RHD</div>
+       </div></body>`
+    ),
+    { title: "The Wolf of Wall Street", year: 2013, type: "movie" }
+  );
+
+  // The synopsis must not be able to override the facts line, which is why the
+  // fallback only reads the opening stretch
+  check(
+    "a year deep in the synopsis is not read",
+    await detect(
+      "https://www.netflix.com/browse?jbv=2",
+      `<head><title>Some Film - Netflix</title></head>
+       <body><div data-uia="modal-motion-container-DETAIL_MODAL">
+         <img class="playerModel--player__storyArt" alt="Some Film">
+         <div>${"A sprawling drama. ".repeat(20)} Set in 1929 during the crash.</div>
+       </div></body>`
+    ),
+    { title: "Some Film", year: undefined, type: undefined }
+  );
+
+  // The dedicated selector still wins when it does match
+  check(
+    "a matching metadata selector takes precedence over the fallback",
+    await detect(
+      "https://www.netflix.com/browse?jbv=3",
+      `<head><title>Some Film - Netflix</title></head>
+       <body><div data-uia="modal-motion-container-DETAIL_MODAL">
+         <img class="playerModel--player__storyArt" alt="Some Film">
+         <div data-uia="previewModal--detailsMetadata">1h 30m1999PG</div>
+         <div>2020 something else entirely</div>
+       </div></body>`
+    ),
+    { title: "Some Film", year: 1999, type: "movie" }
+  );
+}
+
 // --- Waiting for a late-rendering title ------------------------------------
 // The bug this replaced: Netflix inserts its modal container immediately and
 // fills in the story art afterwards, so waiting for the container then trying

@@ -20,6 +20,7 @@ import {
   classifyOmdbFailure,
   isRetryable,
   isCacheableMiss,
+  stripTitleQualifier,
 } from "../convex/omdbParse";
 
 let failures = 0;
@@ -218,6 +219,23 @@ check(
   ),
   ["notFound"]
 );
+
+// --- Regional title qualifiers ---------------------------------------------
+// Netflix lists "The Office (U.S.)"; OMDb has no record under that name, so
+// the lookup failed outright on a whole class of well-known shows.
+check("strips a regional qualifier", stripTitleQualifier("The Office (U.S.)"), "The Office");
+check("strips a bare US suffix", stripTitleQualifier("The Bridge (US)"), "The Bridge");
+check("strips a year", stripTitleQualifier("Fargo (2014)"), "Fargo");
+check("leaves a plain title alone", stripTitleQualifier("Inception"), null);
+// A few real titles end in parentheses, which is why this only ever builds a
+// retry rather than replacing the original
+check(
+  "still strips a title that genuinely ends in parentheses",
+  stripTitleQualifier("Birdman or (The Unexpected Virtue of Ignorance)"),
+  "Birdman or"
+);
+check("refuses to reduce a title to nothing", stripTitleQualifier("(Untitled)"), null);
+check("ignores nested parentheses", stripTitleQualifier("Film (a (b))"), null);
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

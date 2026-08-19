@@ -99,7 +99,7 @@ export function detectCurrentTitle(): TitleInfo | null {
   // The platform's own metadata line, where it has one. This is the only place
   // a year comes from on most pages, and the year is what separates a remake
   // from its original.
-  const metadata = readMetadata(config.selectors.metadata);
+  const metadata = readMetadata(config.selectors.metadata, config.selectors.titlePage);
 
   const candidates: TitleCandidate[] = [];
 
@@ -137,19 +137,44 @@ export function detectCurrentTitle(): TitleInfo | null {
 }
 
 /**
+ * How much of a detail view to scan when no dedicated metadata element matched.
+ *
+ * These pages put the facts line above the synopsis, so the opening stretch of
+ * text is metadata and the rest is prose. Reading the whole thing would let a
+ * synopsis — "set in 1929", "a series of events" — override the real answer.
+ */
+const METADATA_SCAN_LIMIT = 220;
+
+/**
  * Read the year and type out of the platform's metadata region.
  *
+ * Tries the dedicated selectors first. When none matches — which is the normal
+ * case on a site that has changed its markup since these were written — it
+ * falls back to the opening text of the detail view itself. That fallback is
+ * what makes this survive a selector going stale, which on the evidence so far
+ * is a matter of when rather than whether.
+ *
  * @param selectors - Candidate selectors for the metadata element
- * @returns Whatever could be established from it
+ * @param containerSelectors - The detail view, used as a last resort
+ * @returns Whatever could be established
  */
 function readMetadata(
-  selectors: readonly string[]
+  selectors: readonly string[],
+  containerSelectors: readonly string[]
 ): { year?: number; type?: "movie" | "series" } {
   for (const selector of selectors) {
     const text = safeQuerySelector(selector)?.textContent?.trim();
     if (!text) continue;
 
     const parsed = parseMetadataText(text);
+    if (parsed.year !== undefined || parsed.type !== undefined) return parsed;
+  }
+
+  for (const selector of containerSelectors) {
+    const text = safeQuerySelector(selector)?.textContent?.trim();
+    if (!text) continue;
+
+    const parsed = parseMetadataText(text.slice(0, METADATA_SCAN_LIMIT));
     if (parsed.year !== undefined || parsed.type !== undefined) return parsed;
   }
 

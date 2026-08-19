@@ -30,6 +30,7 @@ import { mergeMetadata } from "./tmdbParse";
 import {
   lookupKey,
   parseAwardTotals,
+  stripTitleQualifier,
   parseOmdbResponse,
   classifyOmdbFailure,
   isRetryable,
@@ -446,9 +447,25 @@ async function resolveFromOmdb(
   const withoutYear = await attempt({ t: title, plot: "short", ...typeParam });
   if (withoutYear) return withoutYear;
 
-  // 3. Search, then fetch full details for the best match. The `s` endpoint
+  // 3. Drop a trailing parenthetical qualifier. Streaming services
+  //    disambiguate regional versions ("The Office (U.S.)") in a way the
+  //    databases don't, and the exact-title attempts above cannot match those.
+  const withoutQualifier = stripTitleQualifier(title);
+  if (withoutQualifier) {
+    const qualifierStripped = await attempt({
+      t: withoutQualifier,
+      plot: "short",
+      ...typeParam,
+    });
+    if (qualifierStripped) return qualifierStripped;
+  }
+
+  // 4. Search, then fetch full details for the best match. The `s` endpoint
   //    returns no ratings, so a second request by IMDb ID is required.
-  const search = await fetchOmdb(apiKey, { s: title, ...typeParam });
+  const search = await fetchOmdb(apiKey, {
+    s: withoutQualifier ?? title,
+    ...typeParam,
+  });
 
   if (!search.ok) {
     return isCacheableMiss(search.failure)
