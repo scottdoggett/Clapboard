@@ -179,6 +179,17 @@ The card splices into the host page's own layout rather than floating over it, s
 - Inline and floating are **separate components**, not one with a `variant` check throughout — they differ on nearly every line. `InlineSection` reproduces Netflix's own values exactly: 24px/400 headings with `48px 0 20px` margins, 14px/20px fact rows, `#777` labels, `#ddd` values, middot separators. No background, no border, no icons.
 - The shadow root's `:host` re-inherits `font-family` and `color` after `all: initial`. The reset is what keeps the site's CSS out, but it also reset the typeface to the browser default, which is why the inline section read as foreign however it was styled. For a section spliced into a site's layout, using that site's typeface is most of the work.
 
+### Personal Library
+
+What the user has watched, wants to watch, liked, and written about (`src/shared/utils/library.ts`, verified by `npm run verify:library`).
+
+It lives in `chrome.storage.local`, **not** in Convex. There is no auth yet, so a backend copy would be keyed on the anonymous per-installation id — regenerated on reinstall, so no more durable than local storage, in exchange for a round trip per toggle and a server holding a list of what someone watches. The cost is that it doesn't sync between devices; that's the honest limit of storing personal data without accounts, and `exportLibrary` exists so it can move when Phase 4 arrives.
+
+- Entries are keyed by **IMDb id** where there is one. The same film is "The Office (U.S.)" on one service and "The Office" on another, and its year differs between sources. A normalized title is the fallback, which is what lets a browse tile mark a title before any lookup has run; the entry then migrates to the id key and keeps its marks.
+- An entry recording nothing is **deleted**, not left as a husk — but un-watching a film you reviewed keeps the review. It's the only data here the user created rather than fetched.
+- A title already watched drops off the watchlist.
+- **Browse-grid controls** (`src/content/tiles.ts`) mark a title without opening it. The grid is virtualised, so a periodic sweep over the tiles actually on screen re-applies them, which is far simpler than observing a subtree that churns every frame. They inject plain inline-styled DOM rather than React — nothing to leak into the host page, nothing for its CSS to reach. Clicks stop propagation, or marking a tile would open it.
+
 ### Outbound Links
 
 Every rating, award and recipient in the overlay is a link (`src/shared/utils/links.ts`, verified by `npm run verify:links`). Each URL shape was resolved against the live site before being used:

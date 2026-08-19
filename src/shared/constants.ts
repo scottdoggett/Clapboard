@@ -71,6 +71,23 @@ export interface SiteSelectors {
    * fixed-position card in the corner.
    */
   readonly inline: InlineTarget | null;
+  /**
+   * Browse-grid tiles, so a title can be marked without opening it. Null where
+   * the grid's structure has not been verified.
+   */
+  readonly tiles: TileTarget | null;
+}
+
+/**
+ * Describes a browse-grid tile and where its controls belong.
+ */
+export interface TileTarget {
+  /** One tile */
+  readonly container: string;
+  /** Element carrying the title — an `alt` is read when it is an image */
+  readonly title: string;
+  /** Where inside the tile to append the controls */
+  readonly controls: string;
 }
 
 /**
@@ -163,6 +180,13 @@ export const SUPPORTED_SITES = {
         lift: ".ptrack-container",
         placement: "after",
       },
+      // The metadata strip only renders while a tile is hovered, so controls
+      // appended there inherit Netflix's own reveal-on-hover behaviour for free
+      tiles: {
+        container: ".titleCard--container",
+        title: "img[alt]",
+        controls: ".titleCard--metadataWrapper",
+      },
     },
   },
   disneyPlus: {
@@ -200,6 +224,7 @@ export const SUPPORTED_SITES = {
       // Unverified against the live site, so no splice point is claimed — the
       // overlay floats until someone confirms the real structure.
       inline: null,
+      tiles: null,
     },
   },
   primeVideo: {
@@ -234,6 +259,7 @@ export const SUPPORTED_SITES = {
       // Unverified against the live site, so no splice point is claimed — the
       // overlay floats until someone confirms the real structure.
       inline: null,
+      tiles: null,
     },
   },
   crave: {
@@ -254,6 +280,7 @@ export const SUPPORTED_SITES = {
       // Unverified against the live site, so no splice point is claimed — the
       // overlay floats until someone confirms the real structure.
       inline: null,
+      tiles: null,
     },
   },
 } as const satisfies Record<string, SiteConfig>;

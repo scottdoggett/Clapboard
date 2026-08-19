@@ -26,6 +26,7 @@ import {
 import { STORAGE_KEYS } from "@shared/constants";
 import { getSettings } from "@shared/utils/storage";
 import { watchNavigation } from "./navigation";
+import { startTileControls } from "./tiles";
 
 /**
  * The compiled overlay stylesheet, inlined at build time.
@@ -99,6 +100,10 @@ async function init(): Promise<void> {
 
   // Set up URL change detection (for SPAs)
   watchNavigation(onUrlChange);
+
+  // Browse-grid controls are independent of the overlay: they belong on the
+  // grid, which is exactly where the overlay deliberately does not appear.
+  startTileControls(site);
 
   // Splicing into the host page means its own framework can re-render the
   // subtree we live in and take our node with it, without the URL changing.
