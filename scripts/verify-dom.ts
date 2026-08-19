@@ -483,6 +483,36 @@ check(
     { title: "Some Film", year: undefined, type: undefined }
   );
 
+  // The Nice Guys, a 2016 film, came back as 1970 from its own synopsis —
+  // "In 1970s Los Angeles". Wrong is worse than missing here: the year is
+  // what OMDb disambiguates a remake by.
+  check(
+    "a decade in the synopsis does not become the year",
+    await detect(
+      "https://www.netflix.com/browse?jbv=4",
+      `<head><title>The Nice Guys - Netflix</title></head>
+       <body><div data-uia="modal-motion-container-DETAIL_MODAL">
+         <img class="playerModel--player__storyArt" alt="The Nice Guys">
+         <div>In 1970s Los Angeles, a mismatched pair of private eyes investigate</div>
+       </div></body>`
+    ),
+    { title: "The Nice Guys", year: undefined, type: undefined }
+  );
+
+  // ...and the real facts line still wins when it is present
+  check(
+    "the facts line is read even with a decade in the synopsis",
+    await detect(
+      "https://www.netflix.com/browse?jbv=5",
+      `<head><title>The Nice Guys - Netflix</title></head>
+       <body><div data-uia="modal-motion-container-DETAIL_MODAL">
+         <img class="playerModel--player__storyArt" alt="The Nice Guys">
+         <div>1h 56m2016RHDIn 1970s Los Angeles, a mismatched pair of private eyes</div>
+       </div></body>`
+    ),
+    { title: "The Nice Guys", year: 2016, type: "movie" }
+  );
+
   // The dedicated selector still wins when it does match
   check(
     "a matching metadata selector takes precedence over the fallback",

@@ -450,26 +450,58 @@ export function selectTitle(
  */
 export function parseMetadataText(
   text: string,
-  now: number = new Date().getFullYear()
+  now: number = new Date().getFullYear(),
+  options: { strictYear?: boolean } = {}
 ): { year?: number; type?: "movie" | "series" } {
   const cleaned = text.replace(/\s+/g, " ").trim();
   if (!cleaned) return {};
 
-  return { year: findYear(cleaned, now), type: findType(cleaned) };
+  return {
+    year: findYear(cleaned, now, options.strictYear ?? false),
+    type: findType(cleaned),
+  };
 }
 
 /**
  * Find a plausible release year.
  *
- * Anchored on non-digit boundaries so it can't take four digits out of a
- * longer number, and bounded so a runtime, an episode count, or a year
- * mentioned in a synopsis ("set in 1929") is less likely to win. Only the
- * first match is used — platforms put the release year before any other date.
+ * Two traps, both found by producing wrong answers on a live page rather than
+ * by reasoning about it:
+ *
+ * A decade is not a year. "In 1970s Los Angeles" yielded 1970 for The Nice
+ * Guys, a 2016 film, because the character after the digits merely wasn't
+ * another digit. A trailing "s" is now disqualifying everywhere — no release
+ * year is ever written that way.
+ *
+ * In `strict` mode the year must also be *glued* to an adjacent token. These
+ * platforms concatenate their facts line — "1h 56m2016RHD" — while prose puts
+ * spaces around a date. That difference is what separates a real release year
+ * from one mentioned in a synopsis, and strict mode is used exactly where the
+ * text being scanned might be prose.
+ *
+ * @param text - Whitespace-collapsed text to scan
+ * @param now - Current year, bounding what counts as plausible
+ * @param strict - Require the year to be glued to neighbouring characters
  */
-function findYear(text: string, now: number): number | undefined {
+function findYear(text: string, now: number, strict: boolean): number | undefined {
   for (const match of text.matchAll(/(?<!\d)(\d{4})(?!\d)/g)) {
     const year = parseInt(match[1], 10);
-    if (year >= 1900 && year <= now + 2) return year;
+    if (year < 1900 || year > now + 2) continue;
+
+    const index = match.index ?? 0;
+    const after = text[index + 4] ?? "";
+
+    // "1970s", "1980S" — a decade, never a release year
+    if (after === "s" || after === "S") continue;
+
+    if (strict) {
+      const before = text[index - 1] ?? "";
+      const gluedBefore = before !== "" && before !== " ";
+      const gluedAfter = after !== "" && after !== " ";
+      if (!gluedBefore && !gluedAfter) continue;
+    }
+
+    return year;
   }
   return undefined;
 }

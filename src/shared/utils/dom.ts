@@ -174,7 +174,11 @@ function readMetadata(
     const text = safeQuerySelector(selector)?.textContent?.trim();
     if (!text) continue;
 
-    const parsed = parseMetadataText(text.slice(0, METADATA_SCAN_LIMIT));
+    // Strict: this text may be prose, and a year in a synopsis produced a
+    // confidently wrong answer on a live page
+    const parsed = parseMetadataText(text.slice(0, METADATA_SCAN_LIMIT), undefined, {
+      strictYear: true,
+    });
     if (parsed.year !== undefined || parsed.type !== undefined) return parsed;
   }
 

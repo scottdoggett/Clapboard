@@ -325,5 +325,39 @@ check("takes the first plausible year", meta("2015 R HD Set in 1929 during the c
   type: undefined,
 });
 
+// --- Decades are not release years -----------------------------------------
+// The Nice Guys (2016) came back as 1970 from "In 1970s Los Angeles". The
+// character after the digits merely wasn't another digit.
+check("a decade is not a year", meta("In 1970s Los Angeles a mismatched pair"), {
+  year: undefined,
+  type: undefined,
+});
+check("an uppercase decade is not a year", meta("Best of the 1980S"), {
+  year: undefined,
+  type: undefined,
+});
+check("a real year beside a decade still reads", meta("1h 56m2016RHDIn 1970s Los Angeles"), {
+  year: 2016,
+  type: "movie",
+});
+
+// --- Strict mode, for text that might be prose -----------------------------
+const strict = (text: string) => parseMetadataText(text, NOW, { strictYear: true });
+
+check("strict accepts a year glued into a facts line", strict("1h 56m2016RHD"), {
+  year: 2016,
+  type: "movie",
+});
+check("strict accepts a bullet-separated facts line", strict("Show•Documentary•2026•3 Episodes"), {
+  year: 2026,
+  type: "series",
+});
+// Prose spaces its dates; a facts line does not
+check("strict rejects a year floating in prose", strict("Set in 1929 during the crash"), {
+  year: undefined,
+  type: undefined,
+});
+check("lenient still accepts a spaced year", meta("2015 R HD"), { year: 2015, type: undefined });
+
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);
