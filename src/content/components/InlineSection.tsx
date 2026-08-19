@@ -37,6 +37,23 @@ const BODY_COLOR = "#d2d2d2";
 /** Named awards shown before the list collapses. */
 const AWARD_PREVIEW = 5;
 
+/**
+ * Award marks, in Netflix's own small-badge treatment.
+ *
+ * Their HD and maturity chips are 11px on a 3px radius with a thin outline and
+ * no fill, so these are too. A win and a nomination differ only in tone and in
+ * whether the wreath is filled — the same restraint the rest of the section
+ * uses, and enough to tell apart at a glance without the row turning into a
+ * row of stickers.
+ *
+ * The gold is deliberately desaturated. A true award gold reads as a warning
+ * badge against Netflix's greys.
+ */
+const WIN_COLOR = "#d4b36a";
+const WIN_BORDER = "rgba(212, 179, 106, 0.45)";
+const NOM_COLOR = "rgba(255, 255, 255, 0.55)";
+const NOM_BORDER = "rgba(255, 255, 255, 0.22)";
+
 const InlineSection: React.FC<InlineSectionProps> = ({
   movie,
   ratings,
@@ -205,19 +222,8 @@ const Panel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
  * fact about people, and it is the one worth reading.
  */
 const AwardRow: React.FC<{ award: Award }> = ({ award }) => (
-  <div style={{ display: "flex", gap: "12px", padding: "4px 0", alignItems: "baseline" }}>
-    <span
-      style={{
-        color: LABEL_COLOR,
-        fontSize: "12px",
-        width: "34px",
-        flexShrink: 0,
-        textTransform: "uppercase",
-        letterSpacing: "0.04em",
-      }}
-    >
-      {award.isWin ? "Won" : "Nom"}
-    </span>
+  <div style={{ display: "flex", gap: "10px", padding: "5px 0", alignItems: "baseline" }}>
+    <AwardMark isWin={award.isWin} />
 
     <span style={{ flex: 1, minWidth: 0 }}>
       <span style={{ color: "#fff" }}>{award.name}</span>
@@ -234,6 +240,68 @@ const AwardRow: React.FC<{ award: Award }> = ({ award }) => (
 
     <span style={{ color: LABEL_COLOR, fontSize: "13px", flexShrink: 0 }}>{award.year}</span>
   </div>
+);
+
+/**
+ * The win/nomination mark: a laurel and a short label, in Netflix's chip
+ * treatment. Filled wreath and warm tone for a win, hollow and grey for a
+ * nomination.
+ */
+const AwardMark: React.FC<{ isWin: boolean }> = ({ isWin }) => (
+  <span
+    title={isWin ? "Won" : "Nominated"}
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "3px",
+      flexShrink: 0,
+      width: "58px",
+      justifyContent: "center",
+      fontSize: "11px",
+      lineHeight: "16px",
+      letterSpacing: "0.06em",
+      padding: "1px 5px",
+      borderRadius: "3px",
+      color: isWin ? WIN_COLOR : NOM_COLOR,
+      border: `1px solid ${isWin ? WIN_BORDER : NOM_BORDER}`,
+    }}
+  >
+    <Laurel filled={isWin} />
+    {isWin ? "WON" : "NOM"}
+  </span>
+);
+
+/**
+ * A laurel wreath at 12px.
+ *
+ * Detail is lost at this size, so the silhouette does the work: two mirrored
+ * arcs read as a wreath, and the centre is filled only for a win.
+ */
+const Laurel: React.FC<{ filled: boolean }> = ({ filled }) => (
+  <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false">
+    <g
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8.4 3.8C4.9 6.3 3.6 10 4.2 13.7c.6 3.6 2.9 6.3 6.2 7.6" />
+      <path d="M15.6 3.8C19.1 6.3 20.4 10 19.8 13.7c-.6 3.6-2.9 6.3-6.2 7.6" />
+    </g>
+    {filled ? (
+      <circle cx="12" cy="12.4" r="2.4" fill="currentColor" />
+    ) : (
+      <circle
+        cx="12"
+        cy="12.4"
+        r="2.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+    )}
+  </svg>
 );
 
 const TextButton: React.FC<{ onClick: () => void; children: React.ReactNode }> = ({
