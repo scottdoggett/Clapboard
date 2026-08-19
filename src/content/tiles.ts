@@ -31,6 +31,8 @@ import {
   type Sentiment,
 } from "@shared/utils/library";
 import { buildTileSummary, type TileSummary } from "@shared/utils/tileSummary";
+import { describeChange } from "@shared/utils/toastMessage";
+import { showToast } from "./toast";
 
 /** Marks a tile as already decorated. */
 const MARKER = "data-clapboard-tile";
@@ -333,7 +335,12 @@ function buildControls(
 
       // `subject` is read at click time, not captured: by now the lookup may
       // have supplied an IMDb id, which is a better key than the tile's name
-      void updateEntry({ ...subject }, toggle()).then(async (entry) => {
+      const change = toggle();
+
+      const said = describeChange(change);
+      if (said) showToast(said);
+
+      void updateEntry({ ...subject }, change).then(async (entry) => {
         state = {
           watchedAt: entry?.watchedAt,
           watchlistedAt: entry?.watchlistedAt,

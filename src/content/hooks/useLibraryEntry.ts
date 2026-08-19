@@ -18,6 +18,8 @@ import {
   type LibrarySubject,
   type Sentiment,
 } from "@shared/utils/library";
+import { describeChange } from "@shared/utils/toastMessage";
+import { showToast } from "../toast";
 
 export interface LibraryControls {
   entry: LibraryEntry | undefined;
@@ -61,6 +63,12 @@ export function useLibraryEntry(subject: LibrarySubject | null): LibraryControls
       // Show the result now, persist behind it
       setEntry(applyChange(entry, subject, change, Date.now()) ?? undefined);
       void updateEntry(subject, change).then(setEntry);
+
+      // Confirm at the same moment the button changes, not when storage
+      // acknowledges — the write is local and cannot meaningfully fail, and a
+      // confirmation that trails the click reads as lag
+      const said = describeChange(change);
+      if (said) showToast(said);
     },
     [subject, entry]
   );

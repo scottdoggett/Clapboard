@@ -24,6 +24,7 @@ import {
   searchEntries,
   sortByMode,
 } from "../src/shared/utils/libraryView";
+import { describeChange } from "../src/shared/utils/toastMessage";
 
 let failures = 0;
 
@@ -259,6 +260,52 @@ check("a view of nothing", buildListView([], "", "recent", 1), {
   total: 0,
   remaining: 0,
 });
+
+// ===========================================================================
+// Confirmation wording
+// ===========================================================================
+//
+// A confirmation that doesn't name what happened is decoration. The case that
+// matters is the *cleared* mark: those arrive as a present key holding
+// undefined, and reading them as "nothing changed" would leave the one action
+// most worth confirming — the one you took by mistake — silent.
+
+console.log("\n--- Confirmations ---");
+
+check("marking watched", describeChange({ watchedAt: 1 }), "Marked as watched");
+check("clearing watched", describeChange({ watchedAt: undefined }), "No longer watched");
+check("adding to the watchlist", describeChange({ watchlistedAt: 1 }), "Added to your watchlist");
+check(
+  "removing from the watchlist",
+  describeChange({ watchlistedAt: undefined }),
+  "Removed from your watchlist"
+);
+check("liking", describeChange({ sentiment: "liked" }), "Liked");
+check("disliking", describeChange({ sentiment: "disliked" }), "Marked not for me");
+check("clearing a sentiment", describeChange({ sentiment: undefined }), "Rating removed");
+
+// The stars are on screen and the review box is behind a button, so a score
+// with no words is the common case — and it repeats the score back, which is
+// how you know the half-star landed where you aimed
+check(
+  "a score with no words",
+  describeChange({ review: { text: "", rating: 7.5, updatedAt: 0 } }),
+  "Rated 7.5/10"
+);
+check(
+  "a review with a score",
+  describeChange({ review: { text: "Cold and vast.", rating: 9, updatedAt: 0 } }),
+  "Review saved · 9/10"
+);
+check(
+  "a review with no score",
+  describeChange({ review: { text: "Cold and vast.", updatedAt: 0 } }),
+  "Review saved"
+);
+check("clearing a review", describeChange({ review: undefined }), "Review removed");
+
+// An empty change is not something to announce
+check("nothing to say", describeChange({}), null);
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

@@ -214,6 +214,16 @@ At hand-marked scale the list was a dozen titles you read; after an import it is
 - **Every sort falls back to the title**, so the order is total. A list that reshuffles its unrated entries on every render is worse than one sorted by something arbitrary but stable. Undated and unrated entries sort *last* rather than reading as zero — an imported Netflix row carries no year at all, and there are hundreds of them.
 - The popup is 420x600 (Chrome caps a popup at 800x600) and no longer scrolls as one column: the list pane scrolls on its own, so reaching the list does not first push the tabs you are trying to use off the top.
 
+### Confirmations
+
+Marking a title used to turn one circular outline button into a slightly different circular outline button. `src/content/toast.ts` slides a card up from the bottom of the page instead; the wording lives in `src/shared/utils/toastMessage.ts` and is verified by `npm run verify:library`.
+
+- **The toast owns its own shadow root on `document.body`**, not a node inside the overlay's. Three separate reasons force that: both callers need it (the overlay is React in one shadow root, the browse tiles are plain DOM in Netflix's tree), the overlay's container gets torn out by Netflix re-renders and put back by `reattachIfDetached`, and it has to sit above Netflix's modal — which nothing nested inside that modal can do at any z-index.
+- **A cleared mark is the case worth confirming.** Those arrive as a *present key holding undefined*, so `describeChange` tests with `in` rather than truthiness; reading them as "nothing happened" would leave the action you most likely took by mistake silent.
+- It is deliberately *not* dismissed by `unmountOverlay`, which runs on every SPA navigation. Marking a title and immediately clicking away is normal, and the confirmation should finish.
+
+**Focus rings in the shadow root.** The star hit areas are invisible `<button>`s stacked over each star, so the browser's default ring outlines a box with nothing drawn in it — and macOS paints that ring in the *system accent colour*, which is how picking a rating drew a red rectangle across the stars. The rule in `content/index.ts` replaces the ring with a white one rather than removing it: these are the only genuinely invisible controls in the overlay, and without a ring there is nothing at all to say where focus is.
+
 ### Importing a Watch History
 
 Most people arrive with years of viewing already recorded somewhere else, and a library that starts empty stays empty. The popup's Settings panel takes a CSV or a ZIP and folds it in (`src/shared/utils/importParse.ts`, verified by `npm run verify:import`).

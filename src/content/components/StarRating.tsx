@@ -89,6 +89,9 @@ const HitArea: React.FC<{
     aria-checked={checked}
     aria-label={label}
     title={label}
+    // Focus styling can't be expressed inline, so it lives in the shadow
+    // root's own stylesheet — see the `.cb-star-hit` rules in content/index.ts
+    className="cb-star-hit"
     onMouseEnter={onHover}
     onFocus={onHover}
     onClick={onSelect}

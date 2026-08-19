@@ -247,6 +247,42 @@ function mountOverlay(titleInfo: TitleInfo): void {
       color: inherit;
     }
 
+    /*
+     * Focus rings.
+     *
+     * The star hit areas are invisible <button>s stacked over each star, so
+     * the browser's default ring outlines a box with nothing drawn in it —
+     * and on macOS that ring is painted in the system accent colour, which is
+     * how picking a rating came to draw a coloured rectangle across the stars.
+     *
+     * The ring is replaced, never removed. Suppressing it outright would make
+     * the controls unusable by keyboard, and the star targets are the only
+     * genuinely invisible controls here — without a ring there is nothing at
+     * all to say where focus is.
+     */
+    button {
+      outline: none;
+    }
+
+    /*
+     * A white ring, because the browser's default takes the system accent
+     * colour and lands whatever the user has chosen — red, on the machine
+     * this was reported from — in the middle of a greyscale overlay.
+     *
+     * Chrome follows border-radius with the outline, so this fits the
+     * circular controls as well as the square ones.
+     */
+    button:focus-visible {
+      outline: 2px solid rgba(255, 255, 255, 0.75);
+      outline-offset: 2px;
+    }
+
+    /* The star targets are stacked over the stars, so their ring goes inside */
+    .cb-star-hit:focus-visible {
+      outline-offset: -1px;
+      border-radius: 2px;
+    }
+
     ${__CLAPBOARD_CSS__}
   `;
   shadowRoot.appendChild(styleElement);
