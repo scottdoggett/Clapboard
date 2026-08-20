@@ -14,6 +14,9 @@ npm run verify:ai-scores # Check the AI score parser and spend guard
 npm run verify:dom      # Run title detection against fixture pages in jsdom
 npm run verify:awards   # Check the Wikidata award parser against a recorded response
 npm run verify:providers # Check the MDBList and TMDB parsers
+npm run verify:color    # Check the poster palette clears WCAG AA contrast
+npm run verify:links    # Check the outbound URL constructions
+npm run verify:library  # Check the library state machine, stars, list views and toasts
 npm run verify:tiles    # Check what a browse-grid tile shows about a title
 npm run verify:import   # Check the CSV/ZIP watch-history importers
 npm run doctor          # Preflight: deployment, live key check, feature flags, bundle freshness
@@ -163,6 +166,7 @@ The roadmap called for scraping reviews and then analyzing them. It does both in
   2. *Failures are cached too* — a title with too few reviews must not re-run on every view.
   3. Two ceilings (`aiScoresParse.ts`): `RUN_BUDGET` per deployment (20/hour, 100/day) protects the bill, and `CLIENT_RUN_BUDGET` per installation (8/hour, 30/day) stops one heavy user spending everyone's share. The per-title caches can't bound either — every new title is a legitimate cache miss, and one scroll down a Netflix row is dozens of them.
   The client's own ceiling is checked first, so a heavy user is told they've hit *their* share rather than that the deployment is busy because of themselves.
+- **The per-installation ceiling still keys on the install, not the user, now that accounts exist.** Signing in is optional and must stay optional, so a budget that only bound signed-in users would bind nobody — anyone wanting more would simply sign out. The anonymous id is the only identifier every request is guaranteed to carry.
 - **`aiScoresDb:claimScoringRun` is the only gate on spending.** It checks the budget *and* reserves the title in one Convex mutation, which is transactional — doing the check in the action would leave a race, and the thing being raced for costs money. A claim writes a `pending` row so two tabs on the same title don't both pay; a claim whose action dies expires after `PENDING_TIMEOUT_MS` rather than stranding the title.
 - `generate` returns a **four-way outcome** (`scored` / `unavailable` / `pending` / `rateLimited`), not scores-or-null. The overlay says something different for each, and the background worker caches only the two settled ones — caching "pending" would pin the card to a state that has already passed.
 - `aiScoresDb:getBudgetStatus` is public so the remaining budget can be checked from the CLI or the popup.
@@ -286,19 +290,32 @@ Defined in both `tsconfig.json` and the esbuild alias plugin:
 ## Key Conventions
 
 - TypeScript strict mode with `noUnusedLocals` and `noUnusedParameters`
-- Feature flags in `src/shared/constants.ts` (`FEATURES`) control phased rollout
+- `FEATURES` in `src/shared/constants.ts` holds **only flags something reads**. There were four; three described a rollout that had already happened, and `USER_ACCOUNTS_ENABLED: false` sat in the source claiming accounts were off for a fortnight after they shipped. `AI_SCORES_ENABLED` is the one that survives, because it genuinely gates spending.
 - Console logs prefixed with `[Clapboard]` for filtering in DevTools
 - Content script watches for SPA navigation by polling `location.href` (`src/content/navigation.ts`), not with a MutationObserver. A content script runs in an isolated world, so patching the page's `history.pushState` is not an option — and a body-subtree observer both costs more and misses any `pushState` that doesn't happen to mutate the DOM
 
 ## Current Phase
 
-Phase 1 (Ratings Overlay) and Phase 2 (Awards) are implemented end to end: title detection → background worker → Convex → OMDb → overlay.
+**Phases 1 and 2 (ratings, awards) are done end to end** and running against a live deployment: title detection → background worker → Convex → OMDb → Wikidata → overlay.
 
-Phase 3 (AI review scoring) is implemented, and everything except the model call itself has now been exercised against a live deployment: the schema deploys, and `claimScoringRun` was driven through claim → pending-dedup → release → budget exhaustion via `npx convex run`. What remains unproven is the Claude call — that needs an `ANTHROPIC_API_KEY` and `FEATURES.AI_SCORES_ENABLED` flipped on. Phase 4 (user accounts) has its backend done: auth, the `libraryEntries` table, and scoped read/write functions, all verified against the live deployment — sign-up returns a JWT, a scoped write and read round-trip, and an unauthenticated call is refused. The popup has the sign-in UI and the sync.
+**Phase 3 (AI review scoring) is implemented but switched off.** Everything except the model call has been exercised against the live deployment — the schema deploys, and `claimScoringRun` was driven through claim → pending-dedup → release → budget exhaustion via `npx convex run`. The Claude call itself is unproven: it needs an `ANTHROPIC_API_KEY` and `FEATURES.AI_SCORES_ENABLED` flipped on.
 
-Known gaps in the current phases:
+**Phase 4 (accounts) is done**, backend and UI: Convex Auth with the password provider, the `libraryEntries` table with user-scoped functions, and a merging sync — all verified live (sign-up returns a JWT, a scoped write and read round-trip, an unauthenticated call is refused). The popup signs in and syncs.
+
+Beyond the original phases, the extension now also carries:
+
+- **Ratings and library controls on browse-grid tiles** (`content/tiles.ts`), fetched on a dwell so a mouse sweep doesn't spend the OMDb quota.
+- **Watch-history import** (`utils/importParse.ts`) from Netflix, Letterboxd, IMDb or any CSV with a title column, under the popup's Settings.
+- **A searchable, sorted, paged list** in the popup, which is what an imported history of several hundred titles needs.
+- **Confirmation toasts** (`content/toast.ts`) when a title is marked, from both the overlay and the tiles.
+
+Known gaps, in rough order of how likely they are to bite:
+
+- **A Wikidata failure is cached as though it were the truth.** `fetchWikidataAwards` returns `[]` for a 429, a timeout and a genuine "this film won nothing" alike, so `enrichLookup` can't tell them apart and falls back to OMDb's counts — which `persistLookup` then stores under the normal 6-hour TTL. WDQS throttles routinely, so this fires in normal use and presents as awards mysteriously reducing to "4 wins · 8 nominations" for a few hours. **MDBList and TMDB have the identical hole.** The fix is to return a `{ value, ok }` pair from each enricher and give a degraded lookup a short TTL, mirroring what `classifyOmdbFailure` already does for OMDb.
 - The MDBList and TMDB providers have **never run against their live APIs** — both need keys. Their parsers are unit-verified and every failure path is a no-op, so an unconfigured or broken provider costs nothing, but the first real response is unproven. MDBList's per-rating field names are the specific unknown.
+- The **Letterboxd and IMDb import fixtures** are built from third-party descriptions of those exports, not read off real files. Column matching is by name against a wide synonym list so a differing header still imports, but the first real export of each should be checked. (Letterboxd's export may also now be Pro-only; unconfirmed.)
 - Wikidata's award coverage is good for the Oscars, Globes, BAFTAs and Emmys and thin for minor festivals, so the "and N more" remainder does most of the work on lesser-known titles. It's also crowd-maintained: a wrong award on a film is a wrong award in the overlay.
-- The per-installation scoring ceiling keys on an anonymous id in `chrome.storage`, so it bounds *installations*, not people. Clearing extension storage resets it. That's the most that can be done before Phase 4 brings real accounts, and it's enough for the thing it's for — stopping ordinary heavy browsing from locking others out, not defeating someone deliberately trying to.
+- The per-installation scoring ceiling keys on an anonymous id in `chrome.storage`, so it bounds *installations*, not people. Clearing extension storage resets it. See the note in the AI scoring section for why it stays that way now that accounts exist.
+- **The popup has never been seen rendered.** Chrome blocks scripting `chrome-extension://` pages, so every layout decision in it — including the 420x600 shell and the split scroll panes — is unverified by anything but reading.
 - `convex/reviews.ts` still holds the original per-review scoring stubs. Nothing calls them now — the web-search path replaced them — but `aggregateScores` in `aiScoresParse.ts` is the averaging half of that design if per-review scoring ever comes back.
-- The platform DOM selectors in `SUPPORTED_SITES` are still unverified against the live sites. `verify:dom` covers the detection machinery, but the selector *strings* are educated guesses until someone checks them with an account on each platform. The URL gate and the metadata fallbacks mean a stale selector degrades rather than breaks — the overlay falls back to JSON-LD or the page title instead of showing the wrong thing.
+- **Only Netflix's DOM selectors are verified.** They were read off the live page and confirmed with a probe injected into the running site. Disney+, Prime Video and Crave are still educated guesses, and all three declare `inline: null` and `tiles: null` rather than guessing at a splice point — so they fall back to a floating card and have no tile controls. `verify:dom` covers the detection machinery, not the selector strings. The URL gate and metadata fallbacks mean a stale selector degrades rather than breaks.

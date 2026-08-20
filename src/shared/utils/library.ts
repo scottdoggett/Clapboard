@@ -3,15 +3,14 @@
  *
  * What the user has watched, wants to watch, liked, and written about.
  *
- * This lives in `chrome.storage.local`, not in Convex. There is no auth yet
- * (Phase 4), so a backend copy would be keyed on an anonymous per-installation
- * id that is regenerated whenever the extension is reinstalled — durability no
- * better than local storage, in exchange for a network round trip on every
- * toggle and someone else's server holding a list of what you watch.
+ * `chrome.storage.local` is the copy every toggle writes. Marking a title is a
+ * local write rather than a round trip, and the whole thing works signed out —
+ * nothing here may become a gate in front of that.
  *
- * The tradeoff is that it doesn't sync between devices. That is the honest
- * limit of storing personal data without accounts, and Phase 4 is where it
- * changes; `exportLibrary` exists so the data can move when it does.
+ * Signing in adds a second copy in Convex that the two sides *merge* on
+ * `updatedAt` (`api/librarySync.ts`), so a library survives a reinstall and
+ * follows the user to another browser without either device erasing the other.
+ * `exportLibrary` remains the way out for someone who wants neither.
  *
  * Entries are keyed by IMDb id where there is one, because the same film has
  * different titles across platforms and different years across sources. A

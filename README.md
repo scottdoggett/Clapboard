@@ -48,32 +48,42 @@ Your own list — watchlist, watched, ratings, reviews — lives in the extensio
 ```
 clapboard/
 ├── src/
-│   ├── background/          # MV3 service worker — lifecycle, messaging, API calls
-│   ├── content/             # Content scripts injected into streaming sites
-│   │   ├── components/      # Overlay UI — RatingBadge, AwardsBadge, ScoreBreakdown, etc.
-│   │   ├── hooks/           # React hooks (useMovieData, etc.)
-│   │   └── styles/          # Scoped CSS for injected overlay
-│   ├── popup/               # Toolbar popup — settings, status, quick info
-│   │   └── components/
-│   ├── shared/              # Code shared across all extension contexts
-│   │   ├── types/           # TypeScript interfaces (Movie, Rating, Messages, etc.)
-│   │   ├── utils/           # DOM helpers, score normalization
-│   │   └── api/             # Convex client wrapper
-│   └── assets/              # Icons and images
-├── convex/                  # Convex backend (co-located in monorepo)
-│   ├── schema.ts            # Database schema — movies, ratings, users, reviews
-│   ├── movies.ts            # Movie queries & mutations
-│   ├── ratings.ts           # Ratings aggregation logic
-│   ├── reviews.ts           # AI review processing (future)
-│   └── auth.ts              # Authentication helpers
-├── public/
-│   └── manifest.json        # Chrome MV3 manifest
-├── scripts/                 # Build & dev helpers
-├── next.config.js           # Turbopack build config (no SSR/pages)
-├── tailwind.config.ts
+│   ├── background/          # MV3 service worker — message routing, cache layer
+│   ├── content/             # Injected into streaming sites
+│   │   ├── components/      # InlineSection (spliced into Netflix), OverlayCard,
+│   │   │                    #   LibraryControls, StarRating
+│   │   ├── hooks/           # useMovieData, useAiScores, useLibraryEntry, usePosterPalette
+│   │   ├── tiles.ts         # Ratings + library controls on browse-grid tiles
+│   │   ├── toast.ts         # Confirmation card, in its own shadow root
+│   │   └── navigation.ts    # SPA navigation watcher (polls location.href)
+│   ├── popup/               # Toolbar popup — your lists, account, settings, import
+│   ├── shared/              # Used by every context
+│   │   ├── types/           # Movie, Rating, Award, Messages
+│   │   ├── utils/           # Title detection, library, import/CSV/ZIP, colour,
+│   │   │                    #   links, stars, list views
+│   │   └── api/             # Convex client wrapper, library sync
+│   └── assets/
+├── convex/                  # Backend. Each provider is split parser / fetcher, so
+│   │                        #   the parsers are testable without a deployment
+│   ├── schema.ts            # movies, ratings, awards, aiScores, libraryEntries, …
+│   ├── omdb.ts / omdbParse.ts        # Title resolution + ratings (required)
+│   ├── wikidata.ts / wikidataParse.ts# Named awards and their recipients (no key)
+│   ├── mdblist.ts / tmdb.ts          # Optional enrichment (Letterboxd, artwork)
+│   ├── aiScores*.ts         # Phase 3 scoring: action, db functions, pure parsers
+│   ├── auth.ts              # Convex Auth (password provider)
+│   └── library.ts           # The signed-in user's watchlist, ratings and reviews
+├── public/manifest.json     # Chrome MV3 manifest
+├── scripts/
+│   ├── build.ts             # esbuild pipeline — this is the real build
+│   ├── doctor.ts            # Preflight check for the whole setup
+│   └── verify-*.ts          # Unit checks, run with `npm run verify:*`
+├── tailwind.config.ts       # Tailwind v3, `cb-` prefixed
 ├── tsconfig.json
 └── package.json
 ```
+
+> **Note:** `next.config.js` and the Next.js dependency are vestigial — the
+> extension is built by `scripts/build.ts` with esbuild, not by Next.
 
 ---
 
@@ -177,6 +187,15 @@ npm run verify:tiles
 
 # Check the CSV/ZIP watch-history importers
 npm run verify:import
+
+# Check the poster palette clears WCAG AA contrast
+npm run verify:color
+
+# Check every outbound URL construction
+npm run verify:links
+
+# Check the library state machine, half-stars, list views and confirmations
+npm run verify:library
 ```
 
 After making changes, go to `chrome://extensions/` and click the refresh icon on the Clapboard card to reload.
@@ -185,20 +204,22 @@ After making changes, go to `chrome://extensions/` and click the refresh icon on
 
 ## Supported Platforms
 
-| Platform | Status |
-|---|---|
-| Netflix | 🟡 In Progress |
-| Disney+ | 🟡 In Progress |
-| Amazon Prime Video | 🟡 In Progress |
-| Crave | 🟡 In Progress |
+| Platform | Status | |
+|---|---|---|
+| Netflix | ✅ Verified | Selectors read off the live page. Overlay splices into the layout above "More Like This"; browse tiles carry ratings and controls |
+| Disney+ | 🟡 Unverified | Selectors are educated guesses. Overlay floats; no tile controls |
+| Amazon Prime Video | 🟡 Unverified | As above |
+| Crave | 🟡 Unverified | As above |
 
-Each platform requires custom DOM selectors to detect which title the user is viewing and to position the overlay correctly. Platform-specific logic lives in `src/shared/utils/dom.ts`.
+Each platform needs its own DOM selectors to work out which title is on screen and where the overlay belongs. Those live in `SUPPORTED_SITES` (`src/shared/constants.ts`); the logic that reads the page is in `src/shared/utils/dom.ts` and the pure decisions in `src/shared/utils/titleDetect.ts`.
+
+The three unverified platforms declare `inline: null` and `tiles: null` rather than guessing at a splice point, so they degrade to a floating card instead of injecting a section into the wrong part of someone's layout. A stale selector likewise degrades rather than breaks: detection falls back to JSON-LD, Open Graph, then the tab title.
 
 ---
 
 ## Roadmap
 
-### Phase 1 — Ratings Overlay *(current)*
+### Phase 1 — Ratings Overlay ✅
 - ✅ Detect the active title on supported streaming sites
 - ✅ Fetch and display ratings from IMDb, Rotten Tomatoes, and Metacritic
 - ✅ Normalize scores to a common scale for easy comparison
@@ -206,14 +227,18 @@ Each platform requires custom DOM selectors to detect which title the user is vi
 - ✅ Letterboxd ratings — via MDBList, since Letterboxd's own API is
   approval-only. Optional: set `MDBLIST_API_KEY` on the deployment
 
-### Phase 2 — Awards & Recognition
+### Phase 2 — Awards & Recognition ✅
 - ✅ Surface Oscar, Golden Globe, BAFTA, and other major award data
 - ✅ Show wins vs. nominations at a glance
 - ✅ Per-category awards ("Best Cinematography") — from Wikidata, which models
   each award as a statement rather than OMDb's free-text counts. No API key
-- ⬜ Highlight award-winning content as users browse
+- ✅ Name who actually won — Wikidata attributes an award to people via a
+  `for work` qualifier, so "Adam McKay and Charles Randolph, Best Adapted
+  Screenplay" replaces "Won 4 Oscars"
+- ✅ Highlight award-winning content as users browse — a win/nomination tally
+  sits under every browse-grid tile
 
-### Phase 3 — AI-Powered Review Scoring
+### Phase 3 — AI-Powered Review Scoring 🔒 *implemented, switched off*
 - ✅ Find and read written reviews from critic and audience sources — Claude's
   web search does this server-side, so there's no scraper to maintain
 - ✅ Generate category scores from what reviewers actually wrote:
@@ -242,10 +267,33 @@ Check what's left of the budget at any time:
 npx convex run aiScoresDb:getBudgetStatus '{}'
 ```
 
-### Phase 4 — Personalization & Social
-- User accounts and authentication
-- Personal watchlists and "seen it" tracking
-- Share scores and recommendations with friends
+### Phase 4 — Personalization ✅
+- ✅ User accounts — Convex Auth with the password provider, chosen because it
+  needs no third-party account. **Signing in is optional and stays optional:**
+  ratings, awards and your list all work signed out
+- ✅ Watchlist, watched, liked and "not for me" — from the title page and from
+  the browse grid, without opening anything
+- ✅ Your own rating out of 10 in half-stars, and written reviews
+- ✅ Sync that **merges** rather than overwrites, so a list built signed out
+  survives signing in and a second device doesn't erase the first
+- ✅ Import a watch history from Netflix, Letterboxd, IMDb, or any CSV with a
+  title column — read in the browser, never uploaded
+- ⬜ Share scores and recommendations with friends
+
+### Known gaps
+
+- **A throttled Wikidata request is cached as though it were the truth.** Every
+  failure path returns an empty award list, which is indistinguishable from a
+  film that genuinely won nothing, so the card falls back to OMDb's counts and
+  keeps them for the cache's lifetime. MDBList and TMDB share the hole.
+- **MDBList and TMDB have never run against their live APIs.** Both need keys.
+  Every failure path is a no-op so an unconfigured provider costs nothing, but
+  the first real response is unproven.
+- **The Letterboxd and IMDb import fixtures** come from third-party
+  descriptions of those exports, not real files. Columns are matched by name
+  against a wide synonym list, so a differing header still imports — but the
+  first real export of each should be checked.
+- **Only Netflix's DOM selectors are verified.** See Supported Platforms.
 
 ---
 
@@ -272,9 +320,16 @@ npx convex run aiScoresDb:getBudgetStatus '{}'
               │  Convex Backend  │
               │  - Movie data    │
               │  - Cached ratings│
+              │  - Named awards  │
               │  - AI scores     │
-              │  - User accounts │
-              └─────────────────┘
+              │  - Accounts and  │
+              │    your library  │
+              └────────┬────────┘
+                       │ server-side only, keys never ship
+        ┌──────────────┼──────────────┬─────────────┐
+        ▼              ▼              ▼             ▼
+      OMDb         Wikidata        MDBList        TMDB
+   (required)      (no key)       (optional)    (optional)
 ```
 
 ---

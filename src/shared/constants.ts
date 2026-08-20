@@ -317,22 +317,26 @@ export const RATING_SOURCES = {
 } as const;
 
 /**
- * Feature flags for gradual rollout
+ * Feature flags.
+ *
+ * Only flags something actually reads belong here. There were four, and three
+ * of them — ratings, awards, accounts — were never checked anywhere: those
+ * features shipped and the flags stayed behind describing a rollout that had
+ * already happened. `USER_ACCOUNTS_ENABLED: false` sat in the source claiming
+ * accounts were off for a fortnight after they went in.
  */
 export const FEATURES = {
-  // Phase 1: Basic ratings
-  RATINGS_ENABLED: true,
-
-  // Phase 2: Awards display
-  AWARDS_ENABLED: true,
-
-  // Phase 3: AI-generated scores
+  /**
+   * AI review scoring (Phase 3).
+   *
+   * Off. Every run costs a web search and a model call, so this stays off
+   * until someone deliberately turns it on with a key in place. With it off
+   * the background worker short-circuits the message and the overlay hides
+   * the section entirely — read by `background/index.ts`, `content/App.tsx`
+   * and `scripts/doctor.ts`.
+   */
   AI_SCORES_ENABLED: false,
 
-  // Phase 4: User accounts and social
-  USER_ACCOUNTS_ENABLED: false,
-
-  // Debug features
   DEBUG_LOGGING: process.env.NODE_ENV === "development",
 } as const;
 

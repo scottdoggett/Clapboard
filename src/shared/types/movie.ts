@@ -133,17 +133,6 @@ export interface Movie {
 }
 
 /**
- * User profile (Phase 4)
- */
-export interface User {
-  id: string;
-  clerkId: string;
-  email: string;
-  name?: string;
-  createdAt: number;
-}
-
-/**
  * Review data for AI processing (Phase 3)
  */
 export interface Review {
